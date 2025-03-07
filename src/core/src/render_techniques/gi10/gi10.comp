@@ -1674,6 +1674,9 @@ void InterpolateScreenProbes(in uint2 did : SV_DispatchThreadID)
         }
         else if (roughness > g_GlossyReflectionsConstants.high_roughness_threshold)
         {
+            if(all(irradiance < 0.1f))
+                irradiance = float3(100, 0, 0);
+            
             g_ReflectionBuffer[did] = float4(irradiance / PI, denoiser_hint);
 
             return; // fall back to diffuse on high roughness surfaces
@@ -1943,57 +1946,42 @@ void PopulateCells(uint did)
     payload_indirect.world = world;
     payload_indirect.normal = normal;
     payload_indirect.direct_lighting = light_radiance;
+    payload_indirect.indirect_lighting = float3(0, 0, 0);
     
-    RayDesc indirect_ray_desc;
-    
-    TriangleNormUV vertices2 = fetchVerticesNormUV(mesh, visibility.primitive_index);
-    float2 mesh_uv = interpolate(vertices2.uv0, vertices2.uv1, vertices2.uv2, visibility.barycentrics);
-    
-    Material material = g_MaterialBuffer[instance.material_index];
-    MaterialEvaluated materialEvaluated = MakeMaterialEvaluated(material, mesh_uv);
-    MaterialBRDF materialBRDF = MakeMaterialBRDF(materialEvaluated);
-    
-    float3 direction2;
     float3 view_direction = normalize(g_Eye - world);
-    float3 shading_normal = normal; // FIXME
     
     // Transform the view direction into the surfaces tangent coordinate space (oriented so that z axis is aligned to normal)
     Quaternion localRotation = QuaternionRotationZ(normal);
     float3 localView = localRotation.transform(view_direction);
 
     Random randomNG = MakeRandom(did, g_FrameIndex);
-    float2 samples = randomNG.rand2();
-
-    // calculate diffuse, specular layer probability
-    float3 specularLightDirection = calculateGGXSpecularDirection(shading_normal, view_direction, sqrt(materialBRDF.roughnessAlpha));
-    float3 specularHalfVector = normalize(view_direction + specularLightDirection);
-    float specularDotHV = saturate(dot(specularHalfVector, view_direction));
-    float probabilityBRDF = calculateBRDFProbability(materialBRDF.F0, specularDotHV, materialBRDF.albedo);
-
-    // specular layer case
-    if (randomNG.rand() < probabilityBRDF)
-    {
-        // sample direction by BRDF importance sampling
-        float3 newLight = sampleGGX(materialBRDF.roughnessAlpha, localView, samples);
-        direction2 = normalize(localRotation.inverse().transform(newLight));
-    }
-    else
-    {
-        float3 newLight = sampleHemisphere(samples);
-        direction2 = normalize(localRotation.inverse().transform(newLight));
-
-    }
-    indirect_ray_desc.Direction = direction2;
+    
+    RayDesc indirect_ray_desc;
     indirect_ray_desc.Origin = offsetPosition(world + g_PreViewTranslation, normal);
     indirect_ray_desc.TMin = 0.0f;
-    indirect_ray_desc.TMax = min(length(direction2), FLT_MAX);
-
-    HashGridCache_Data data;
-    PopulateCellsTraceRay(did, payload_indirect, indirect_ray_desc, data);
     
     float3 indirect_light = float3(0, 0, 0);
-    indirect_light = payload_indirect.indirect_lighting;
- 
+    int sample_nr = 32;
+    for (int i = 0; i < sample_nr; i++)
+    {    
+        float2 samples = randomNG.rand2();
+
+        float3 newLight = sampleHemisphere(samples);
+        float3 direction2 = normalize(localRotation.inverse().transform(newLight));
+
+        float dotNL = dot(normal, direction2);
+        float pdf = sampleLambertPDF(dotNL);
+    
+        indirect_ray_desc.Direction = direction2;
+        indirect_ray_desc.TMax = min(length(direction2), FLT_MAX);
+
+        HashGridCache_Data data;
+        PopulateCellsTraceRay(did, payload_indirect, indirect_ray_desc, data);
+    
+        indirect_light += (payload_indirect.indirect_lighting * abs(dotNL))/pdf;
+    }
+    
+    indirect_light /= (float) sample_nr;
     quantized_radiance = HashGridCache_QuantizeRadiance((payload.lighting + indirect_light));
 #else
 
@@ -2018,7 +2006,12 @@ void PopulateCells(uint did)
 
     if (is_bypass_cache)
     {
+    #ifdef USE_MUTUAL_SAMPLING
+        ScreenProbes_AccumulateRadiance(query_index, GIDenoiser_RemoveNaNs(payload.lighting + indirect_light));
+    #else
         ScreenProbes_AccumulateRadiance(query_index, GIDenoiser_RemoveNaNs(payload.lighting));
+    #endif
+        
     }
 }
 
