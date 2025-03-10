@@ -500,7 +500,7 @@ bool pathHit(inout RayDesc ray, HitInfo hitData, IntersectData iData, inout Stra
             firstHit = true;
         else
             firstHit = false;
-        sampleLightsNEEFirstHitInfo(materialBRDF, randomStratified, lightSampler, offsetOrigin,
+        sampleLightsNEEFirstHitInfo(materialBRDF, randomStratified, lightSampler, iData.position,
             iData.normal, iData.geometryNormal, viewDirection, throughput, radiance, firstHit);
     }
 #endif // DISABLE_NEE

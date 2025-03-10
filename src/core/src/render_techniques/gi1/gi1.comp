@@ -1891,7 +1891,7 @@ void PopulateCells(uint did)
 
     if (is_bypass_cache)
     {
-    #ifdef USE_MUTUAL_SAMPLING;
+    #ifdef USE_MUTUAL_SAMPLING
     #else
         ScreenProbes_AccumulateRadiance(query_index, GIDenoiser_RemoveNaNs(payload.lighting));
     #endif

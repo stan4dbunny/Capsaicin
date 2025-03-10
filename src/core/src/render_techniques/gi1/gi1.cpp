@@ -1184,7 +1184,8 @@ RenderOptionList GI1::getRenderOptions() noexcept
     newOptions.emplace(
         RENDER_OPTION_MAKE(gi1_glossy_reflections_mark_fireflies_half_high_threshold, options_));
     newOptions.emplace(
-    newOptions.emplace(RENDER_OPTION_MAKE(gi1_mutual_sampling, options_));
+        RENDER_OPTION_MAKE(gi1_mutual_sampling, options_));
+    newOptions.emplace(
         RENDER_OPTION_MAKE(gi1_glossy_reflections_mark_fireflies_full_high_threshold, options_));
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_glossy_reflections_cleanup_fireflies_half_radius, options_));
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_glossy_reflections_cleanup_fireflies_full_radius, options_));
@@ -2958,7 +2959,7 @@ void GI1::renderGUI(CapsaicinInternal &capsaicin) const noexcept
     ImGui::Checkbox(
         "Disable Specular Materials", &capsaicin.getOption<bool>("gi1_disable_specular_materials"));
 
-    ImGui::Checkbox("Use Mutual Sampling", &capsaicin.getOption<bool>("gi10_mutual_sampling"));
+    ImGui::Checkbox("Use Mutual Sampling", &capsaicin.getOption<bool>("gi1_mutual_sampling"));
 
     if (ImGui::CollapsingHeader("Hash Grid Cache", ImGuiTreeNodeFlags_None))
     {

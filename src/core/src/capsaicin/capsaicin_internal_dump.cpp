@@ -143,11 +143,6 @@ static T ConvertType(TFrom source) noexcept
     {
         return source;
     }
-    else if (extension != nullptr
-        && (strcmp(extension, ".png") == 0 || strcmp(extension, ".PNG") == 0))
-    {
-        savePNG(dump_buffer, dump_buffer_width, dump_buffer_height, file_path);
-    }
     else
     {
         float val;
@@ -204,7 +199,8 @@ void CapsaicinInternal::dumpDebugView(std::filesystem::path const &filePath, std
     }
 }
 
-void CapsaicinInternal::savePNG(GfxBuffer dump_buffer, uint32_t dump_buffer_width, uint32_t dump_buffer_height, char const* png_file_path)
+void CapsaicinInternal::savePNG(GfxBuffer const &dump_buffer, uint32_t dump_buffer_width,
+    uint32_t dump_buffer_height, std::filesystem::path const &filePath) const
 {
     // Image
     float const   *dump_buffer_data  = (float *)gfxBufferGetData(gfx_, dump_buffer);
@@ -227,10 +223,11 @@ void CapsaicinInternal::savePNG(GfxBuffer dump_buffer, uint32_t dump_buffer_widt
         image_data[3 * pixel_index + 2] = quantize(2);
     }
 
-    int ret = stbi_write_png(png_file_path, image_width, image_height, 3, image_data.data(), image_width * 3);
+    int ret = stbi_write_png(
+        filePath.string().c_str(), image_width, image_height, 3, image_data.data(), image_width * 3);
     if (ret == 0)
     {
-        GFX_PRINT_ERROR(kGfxResult_InternalError, "Can't save '%s'", png_file_path);
+        GFX_PRINT_ERROR(kGfxResult_InternalError, "Can't save '%s'", filePath.string().c_str());
     }
 }
 // clang-format off
@@ -270,6 +267,10 @@ void CapsaicinInternal::saveImage(GfxBuffer const &dumpBuffer, const DXGI_FORMAT
         if (extension == ".jpg" || extension == ".jpeg")
         {
             saveJPG(dumpBuffer, bufferFormat, dumpBufferWidth, dumpBufferHeight, filePath);
+        }
+        else if (extension == ".png")
+        {
+            savePNG(dumpBuffer, dumpBufferWidth, dumpBufferHeight, filePath);
         }
         else if (extension == ".exr")
         {
