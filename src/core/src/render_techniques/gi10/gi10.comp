@@ -138,16 +138,6 @@ struct PopulateCellsPayload
     Reservoir reservoir;
 };
 
-struct PopulateCellsPayloadIndirect
-{
-    uint query_index;
-    float3 world;
-    float3 normal;
-    float3 indirect_lighting;
-    float3 direct_lighting;
-    Reservoir reservoir;
-};
-
 struct TraceReflectionsPayload
 {
     int2   full_pos;
@@ -1007,7 +997,7 @@ void PopulateScreenProbesHandleHit(uint did, inout PopulateScreenProbesPayload p
         g_HashGridCache_VisibilityBuffer[visibility_index]      = HashGridCache_PackVisibility(visibility);
         g_HashGridCache_VisibilityCellBuffer[visibility_index]  = cell_index;
         g_HashGridCache_VisibilityQueryBuffer[visibility_index] = did;
-        g_HashGridCache_VisibilityIndexFromCellIndex[cell_index] = visibility_index;
+        
         // Write out bounds of visibility
         requestLightSampleLocation(data.hit_position);
 
@@ -1659,10 +1649,7 @@ void InterpolateScreenProbes(in uint2 did : SV_DispatchThreadID)
             return; // raytrace low roughness pixels at half resolution
         }
         else if (roughness > g_GlossyReflectionsConstants.high_roughness_threshold)
-        {
-            if(all(irradiance < 0.1f))
-                irradiance = float3(100, 0, 0);
-            
+        {            
             g_ReflectionBuffer[did] = float4(irradiance / PI, denoiser_hint);
 
             return; // fall back to diffuse on high roughness surfaces
@@ -1900,8 +1887,7 @@ void PopulateCells(uint did)
 
     if (is_bypass_cache)
     {
-    #ifdef USE_MUTUAL_SAMPLING
-        ScreenProbes_AccumulateRadiance(query_index, GIDenoiser_RemoveNaNs(payload.lighting + indirect_light));
+    #ifdef USE_MUTUAL_SAMPLING;
     #else
         ScreenProbes_AccumulateRadiance(query_index, GIDenoiser_RemoveNaNs(payload.lighting));
     #endif
