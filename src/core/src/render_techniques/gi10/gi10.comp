@@ -73,10 +73,6 @@ RWStructuredBuffer<DispatchRaysCommand> g_DispatchRaysCommandBuffer;
 RWTexture2D<float4>                     g_GlobalIlluminationBuffer;
 Texture2D                               g_PrevCombinedIlluminationBuffer;
 
-// DIY
-
-RWTexture2D<float4> g_RedTexture;
-
 RaytracingAccelerationStructure g_Scene;
 
 TextureCube g_EnvironmentBuffer;
@@ -230,16 +226,6 @@ void GenerateDispatchRays()
     dispatch_rays_command.padding[1] = 0;
     dispatch_rays_command.padding[2] = 0;
     g_DispatchRaysCommandBuffer[0] = dispatch_rays_command;
-}
-
-// DIY
-[numthreads(1, 1, 1)]
-void MakeRed(in uint2 did : SV_DispatchThreadID)
-{
-    float4 radiance = float4(0, 1, 0, 1);
-    
-    g_RedTexture[did] = radiance;
-
 }
 
 //!
@@ -1788,28 +1774,6 @@ void PopulateCellsHandleHit(uint did, inout PopulateCellsPayload payload, RayDes
 #endif // USE_RESAMPLING
 }
 
-void PopulateCellsHandleHit(uint did, inout PopulateCellsPayloadIndirect payload, RayDesc ray, HitInfo hit_info, float hit_distance, inout HashGridCache_Data data)
-{
-    data.eye_position = g_Eye;
-    data.hit_position = (ray.Origin + hit_distance * ray.Direction);
-    data.direction = ray.Direction;
-    data.hit_distance = hit_distance;
-
-    uint tile_index;
-    uint cell_index = HashGridCache_FindCell(data, tile_index);
-
-    if (cell_index != kGI10_InvalidId)
-    {
-       // Bump the cell's decay to the max. now that it's been 'touched'
-        uint previous_tile_decay;
-        InterlockedExchange(g_HashGridCache_DecayTileBuffer[tile_index], g_FrameIndex, previous_tile_decay);
-
-        float4 li = HashGridCache_FilteredRadiance(cell_index, false);
-        payload.indirect_lighting = (li.xyz / max(li.w, 1.0f));
-    }
-
-}
-
 void PopulateCellsHandleMiss(uint did, inout PopulateCellsPayload payload, RayDesc ray)
 {
     float3       light_radiance = payload.lighting;
@@ -1829,11 +1793,6 @@ void PopulateCellsHandleMiss(uint did, inout PopulateCellsPayload payload, RayDe
         * light_radiance * light_weight;
 }
 
-void PopulateCellsHandleMiss(uint did, inout PopulateCellsPayloadIndirect payload, RayDesc ray)
-{
-    payload.indirect_lighting = float3(0, 0, 0);
-}
-
 void PopulateCellsTraceRayInline(uint did, inout PopulateCellsPayload payload, RayDesc ray)
 {
     ShadowRayQuery ray_query = TraceRay<ShadowRayQuery>(ray);
@@ -1848,20 +1807,6 @@ void PopulateCellsTraceRayInline(uint did, inout PopulateCellsPayload payload, R
     }
 }
 
-void PopulateCellsTraceRayInline(uint did, inout PopulateCellsPayloadIndirect payload, RayDesc ray, inout HashGridCache_Data data)
-{
-    ShadowRayQuery ray_query = TraceRay < ShadowRayQuery > (ray);
-
-    if (ray_query.CommittedStatus() == COMMITTED_NOTHING)
-    {
-        PopulateCellsHandleMiss(did, payload, ray);
-    }
-    else
-    {
-        PopulateCellsHandleHit(did, payload, ray, GetHitInfoRtInlineCommitted(ray_query), ray_query.CommittedRayT(), data);
-    } 
-}
-
 void PopulateCellsTraceRayRt(uint did, inout PopulateCellsPayload payload, RayDesc ray)
 {
     TraceRay(g_Scene, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xFFu, 0, 0, 0, ray, payload);
@@ -1871,15 +1816,6 @@ void PopulateCellsTraceRay(uint did, inout PopulateCellsPayload payload, RayDesc
 {
 #if USE_INLINE_RT
     return PopulateCellsTraceRayInline(did, payload, ray);
-#else
-    return PopulateCellsTraceRayRt(did, payload, ray);
-#endif
-}
-
-void PopulateCellsTraceRay(uint did, inout PopulateCellsPayloadIndirect payload, RayDesc ray, inout HashGridCache_Data data)
-{
-#if USE_INLINE_RT
-    return PopulateCellsTraceRayInline(did, payload, ray, data);
 #else
     return PopulateCellsTraceRayRt(did, payload, ray);
 #endif
@@ -1940,49 +1876,7 @@ void PopulateCells(uint did)
     
     uint4 quantized_radiance;
 #ifdef USE_MUTUAL_SAMPLING
-
-    PopulateCellsPayloadIndirect payload_indirect;
-    payload_indirect.query_index = query_index;
-    payload_indirect.world = world;
-    payload_indirect.normal = normal;
-    payload_indirect.direct_lighting = light_radiance;
-    payload_indirect.indirect_lighting = float3(0, 0, 0);
-    
-    float3 view_direction = normalize(g_Eye - world);
-    
-    // Transform the view direction into the surfaces tangent coordinate space (oriented so that z axis is aligned to normal)
-    Quaternion localRotation = QuaternionRotationZ(normal);
-    float3 localView = localRotation.transform(view_direction);
-
-    Random randomNG = MakeRandom(did, g_FrameIndex);
-    
-    RayDesc indirect_ray_desc;
-    indirect_ray_desc.Origin = offsetPosition(world + g_PreViewTranslation, normal);
-    indirect_ray_desc.TMin = 0.0f;
-    
-    float3 indirect_light = float3(0, 0, 0);
-    int sample_nr = 32;
-    for (int i = 0; i < sample_nr; i++)
-    {    
-        float2 samples = randomNG.rand2();
-
-        float3 newLight = sampleHemisphere(samples);
-        float3 direction2 = normalize(localRotation.inverse().transform(newLight));
-
-        float dotNL = dot(normal, direction2);
-        float pdf = sampleLambertPDF(dotNL);
-    
-        indirect_ray_desc.Direction = direction2;
-        indirect_ray_desc.TMax = min(length(direction2), FLT_MAX);
-
-        HashGridCache_Data data;
-        PopulateCellsTraceRay(did, payload_indirect, indirect_ray_desc, data);
-    
-        indirect_light += (payload_indirect.indirect_lighting * abs(dotNL))/pdf;
-    }
-    
-    indirect_light /= (float) sample_nr;
-    quantized_radiance = HashGridCache_QuantizeRadiance((payload.lighting + indirect_light));
+  
 #else
 
     

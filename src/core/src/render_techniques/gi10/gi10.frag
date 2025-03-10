@@ -35,11 +35,6 @@ Texture2D g_RoughnessBuffer;
 Texture2D g_VisibilityBuffer;
 Texture2D g_OcclusionAndBentNormalBuffer;
 
-
-// DIY
-
-Texture2D g_RedTexture;
-
 Texture2D g_LutBuffer;
 uint g_LutSize;
 
