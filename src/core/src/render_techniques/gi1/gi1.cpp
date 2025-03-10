@@ -1188,7 +1188,6 @@ RenderOptionList GI1::getRenderOptions() noexcept
         RENDER_OPTION_MAKE(gi1_glossy_reflections_mark_fireflies_full_high_threshold, options_));
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_glossy_reflections_cleanup_fireflies_half_radius, options_));
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_glossy_reflections_cleanup_fireflies_full_radius, options_));
->>>>>>> 5a3bf2a2b9b736bf660a6f4da17a6959ab4fc836:src/core/src/render_techniques/gi1/gi1.cpp
     return newOptions;
 }
 
