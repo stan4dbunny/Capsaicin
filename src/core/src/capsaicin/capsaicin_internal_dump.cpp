@@ -199,37 +199,6 @@ void CapsaicinInternal::dumpDebugView(std::filesystem::path const &filePath, std
     }
 }
 
-void CapsaicinInternal::savePNG(GfxBuffer const &dump_buffer, uint32_t dump_buffer_width,
-    uint32_t dump_buffer_height, std::filesystem::path const &filePath) const
-{
-    // Image
-    float const   *dump_buffer_data  = (float *)gfxBufferGetData(gfx_, dump_buffer);
-    uint32_t const image_width       = dump_buffer_width;
-    uint32_t const image_height      = dump_buffer_height;
-    uint32_t const image_pixel_count = dump_buffer_width * dump_buffer_height;
-
-    std::vector<unsigned char> image_data;
-    image_data.resize((size_t)image_width * image_height * 3);
-
-    for (size_t pixel_index = 0; pixel_index < image_pixel_count; ++pixel_index)
-    {
-        auto quantize = [dump_buffer_data, pixel_index](uint32_t channel_offset) {
-            return (unsigned char)glm::floor(
-                glm::clamp(dump_buffer_data[4 * pixel_index + channel_offset], 0.f, 1.f) * 255.f);
-        };
-
-        image_data[3 * pixel_index + 0] = quantize(0);
-        image_data[3 * pixel_index + 1] = quantize(1);
-        image_data[3 * pixel_index + 2] = quantize(2);
-    }
-
-    int ret = stbi_write_png(
-        filePath.string().c_str(), image_width, image_height, 3, image_data.data(), image_width * 3);
-    if (ret == 0)
-    {
-        GFX_PRINT_ERROR(kGfxResult_InternalError, "Can't save '%s'", filePath.string().c_str());
-    }
-}
 // clang-format off
 void CapsaicinInternal::dumpCamera(std::filesystem::path const &filePath, bool const jittered) const
 {
@@ -270,7 +239,7 @@ void CapsaicinInternal::saveImage(GfxBuffer const &dumpBuffer, const DXGI_FORMAT
         }
         else if (extension == ".png")
         {
-            savePNG(dumpBuffer, dumpBufferWidth, dumpBufferHeight, filePath);
+            savePNG(dumpBuffer, bufferFormat, dumpBufferWidth, dumpBufferHeight, filePath);
         }
         else if (extension == ".exr")
         {
@@ -491,6 +460,72 @@ void CapsaicinInternal::saveJPG(GfxBuffer const &dumpBuffer, const DXGI_FORMAT b
     }
 }
 
+void CapsaicinInternal::savePNG(GfxBuffer const &dumpBuffer, const DXGI_FORMAT bufferFormat, uint32_t const dumpBufferWidth,
+    uint32_t const dumpBufferHeight, std::filesystem::path const &filePath) const
+{
+    // Image
+    void const    *bufferData      = gfxBufferGetData(gfx_, dumpBuffer);
+    uint32_t const imageWidth       = dumpBufferWidth;
+    uint32_t const imageHeight      = dumpBufferHeight;
+    uint32_t const imagePixelCount = dumpBufferWidth * dumpBufferHeight;
+    uint32_t const channelCount    = GetNumChannels(bufferFormat);
+    uint32_t const bitsPerChannel  = GetBitsPerPixel(bufferFormat) / channelCount;
+
+    if (bitsPerChannel == 8 && channelCount == 3)
+    {
+        int ret = stbi_write_png(filePath.string().c_str(), static_cast<int32_t>(imageWidth),
+            static_cast<int32_t>(imageHeight), 3, bufferData, imageWidth * 3);
+        if (ret == 0)
+        {
+            GFX_PRINT_ERROR(kGfxResult_InternalError, "Can't save '%s'", filePath.string().c_str());
+        }
+    }
+    else
+    {
+        std::vector<unsigned char> imageData(static_cast<size_t>(imageWidth) * imageHeight * 3);
+        auto                       quantize = [&]<typename T>(T const *dumpBufferData) {
+            for (size_t pixelIndex = 0; pixelIndex < imagePixelCount; ++pixelIndex)
+            {
+                imageData[3 * pixelIndex + 0] =
+                    ConvertType<uint8_t, T>(dumpBufferData[channelCount * pixelIndex + 0]);
+                imageData[3 * pixelIndex + 1] =
+                    channelCount > 1 ? ConvertType<uint8_t, T>(dumpBufferData[channelCount * pixelIndex + 1])
+                                                           : 0;
+                imageData[3 * pixelIndex + 2] =
+                    channelCount > 2 ? ConvertType<uint8_t, T>(dumpBufferData[channelCount * pixelIndex + 2])
+                                                           : 0;
+            }
+        };
+
+        if (bool const isFloatFormat = IsFormatFloat(bufferFormat); bitsPerChannel == 32 && isFloatFormat)
+        {
+            quantize(static_cast<float const *>(bufferData));
+        }
+        else if (bitsPerChannel == 32)
+        {
+            quantize(static_cast<uint32_t const *>(bufferData));
+        }
+        else if (bitsPerChannel == 16 && isFloatFormat)
+        {
+            quantize(static_cast<Half const *>(bufferData));
+        }
+        else if (bitsPerChannel == 16)
+        {
+            quantize(static_cast<uint16_t const *>(bufferData));
+        }
+        else if (bitsPerChannel == 8)
+        {
+            quantize(static_cast<uint8_t const *>(bufferData));
+        }
+
+         int ret = stbi_write_png(filePath.string().c_str(), static_cast<int32_t>(imageWidth),
+            static_cast<int32_t>(imageHeight), 3, imageData.data(), imageWidth * 3);
+        if (ret == 0)
+        {
+            GFX_PRINT_ERROR(kGfxResult_InternalError, "Can't save '%s'", filePath.string().c_str());
+        }
+    }
+}
 void CapsaicinInternal::dumpCamera(CameraMatrices const &cameraMatrices, float const cameraJitterX,
     float const cameraJitterY, std::filesystem::path const &filePath) const
 {

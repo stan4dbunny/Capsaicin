@@ -980,7 +980,7 @@ private:
         uint32_t dumpBufferHeight, std::filesystem::path const &filePath);
     void saveJPG(GfxBuffer const &dumpBuffer, DXGI_FORMAT bufferFormat, uint32_t dumpBufferWidth,
         uint32_t dumpBufferHeight, std::filesystem::path const &filePath) const;
-    void savePNG(GfxBuffer const &dumpBuffer, uint32_t dumpBufferWidth,
+    void savePNG(GfxBuffer const &dumpBuffer, DXGI_FORMAT bufferFormat, uint32_t dumpBufferWidth,
         uint32_t dumpBufferHeight, std::filesystem::path const &filePath) const;
     void dumpCamera(CameraMatrices const &cameraMatrices, float cameraJitterX, float cameraJitterY,
         std::filesystem::path const &filePath) const;
