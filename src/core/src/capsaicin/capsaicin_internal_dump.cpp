@@ -183,7 +183,7 @@ void CapsaicinInternal::dumpDebugView(std::filesystem::path const &filePath, std
                 // instead of the raw AOV data
                 auto extension = filePath.extension().string();
                 std::ranges::transform(extension, extension.begin(), tolower);
-                if (extension == ".jpg" || extension == ".jpeg")
+                if (extension == ".jpg" || extension == ".jpeg" || extension == ".png")
                 {
                     dump_buffer = currentView;
                 }
