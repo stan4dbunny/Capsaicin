@@ -84,13 +84,13 @@ float4 CellRadiance(uint cell_index)
 
 float4 CellFilteredRadiance(uint entry_cell_mip0)
 {
-    float4 radiance = HashGridCache_FilteredRadiance(entry_cell_mip0, false);
+    float4 radiance = HashGridCache_FilteredRadiance(entry_cell_mip0, g_HashGridCacheConstants.max_sample_count, false);
     return float4(NormalizeRadiance(radiance), float(radiance.w > 0.f));
 }
 
 float4 CellFilteringGain(uint entry_cell_mip0)
 {
-    float4 filtered_radiance = HashGridCache_FilteredRadiance(entry_cell_mip0, false);
+    float4 filtered_radiance = HashGridCache_FilteredRadiance(entry_cell_mip0, g_HashGridCacheConstants.max_sample_count, false);
     float4 base_radiance = HashGridCache_UnpackRadiance(g_HashGridCache_ValueBuffer[entry_cell_mip0]);
     float3 diff_radiance = max(0.f, NormalizeRadiance(filtered_radiance) - NormalizeRadiance(base_radiance));
     return float4(diff_radiance, float(filtered_radiance.w > 0.f));
@@ -116,13 +116,13 @@ float4 CellRadianceSampleCount(uint cell_index)
 
 float4 CellFilteredSampleCount(uint entry_cell_mip0)
 {
-    float4 radiance = HashGridCache_FilteredRadiance(entry_cell_mip0, true);
+    float4 radiance = HashGridCache_FilteredRadiance(entry_cell_mip0, g_HashGridCacheConstants.max_sample_count, true);
     return HeatSampleCount(radiance);
 }
 
 float4 CellFilteredMipLevel(uint entry_cell_mip0)
 {
-    float4 radiance = HashGridCache_FilteredRadiance(entry_cell_mip0, true);
+    float4 radiance = HashGridCache_FilteredRadiance(entry_cell_mip0, g_HashGridCacheConstants.max_sample_count, true);
     return float4(radiance.xyz, 1.f);
 }
 
@@ -181,7 +181,7 @@ DebugHashGridCells_Params DebugHashGridCells(in uint idx : SV_VertexID)
 
     float4 packed_cell = g_HashGridCache_DebugCellBuffer[debug_cell_index];
     uint   decay_tile  = WrapDecay(g_HashGridCache_DecayTileBuffer[tile_index]);
-    uint   decay_cell  = WrapDecay(g_HashGridCache_DecayCellBuffer[debug_cell_index]);
+    uint   decay_cell  = WrapDecay(g_HashGridCache_DebugDecayCellBuffer[debug_cell_index]);
 
     float cell_size;
     float3 cell_center, direction;

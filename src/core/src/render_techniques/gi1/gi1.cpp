@@ -35,6 +35,12 @@ char const *kPopulateScreenProbesAnyHitShaderName     = "PopulateScreenProbesAny
 char const *kPopulateScreenProbesClosestHitShaderName = "PopulateScreenProbesClosestHit";
 char const *kPopulateScreenProbesHitGroupName         = "PopulateScreenProbesHitGroup";
 
+char const *kPopulateMultibounceCellsRaygenShaderName     = "PopulateMultibounceCellsRaygen";
+char const *kPopulateMultibounceCellsMissShaderName       = "PopulateMultibounceCellsMiss";
+char const *kPopulateMultibounceCellsAnyHitShaderName     = "PopulateMultibounceCellsAnyHit";
+char const *kPopulateMultibounceCellsClosestHitShaderName = "PopulateMultibounceCellsClosestHit";
+char const *kPopulateMultibounceCellsHitGroupName         = "PopulateMultibounceCellsHitGroup";
+
 char const *kPopulateCellsRaygenShaderName     = "PopulateCellsRaygen";
 char const *kPopulateCellsMissShaderName       = "PopulateCellsMiss";
 char const *kPopulateCellsAnyHitShaderName     = "PopulateCellsAnyHit";
@@ -366,7 +372,6 @@ GI1::HashGridCache::HashGridCache(GI1 &gi1)
     , first_cell_offset_tile_mip3_(0)
     , radiance_cache_hash_buffer_ping_pong_(0)
     , radiance_cache_hash_buffer_(radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_HASHBUFFER])
-    , radiance_cache_decay_cell_buffer_(radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_DECAYCELLBUFFER])
     , radiance_cache_decay_tile_buffer_(radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_DECAYTILEBUFFER])
     , radiance_cache_value_buffer_(radiance_cache_hash_buffer_uint2_[HASHGRIDCACHE_VALUEBUFFER])
     , radiance_cache_update_tile_buffer_(radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_UPDATETILEBUFFER])
@@ -375,8 +380,10 @@ GI1::HashGridCache::HashGridCache(GI1 &gi1)
     , radiance_cache_update_cell_value_buffer_(
           radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_UPDATECELLVALUEBUFFER])
     , radiance_cache_visibility_buffer_(radiance_cache_hash_buffer_float4_[HASHGRIDCACHE_VISIBILITYBUFFER])
-    , radiance_cache_visibility_count_buffer_(
-          radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_VISIBILITYCOUNTBUFFER])
+    , radiance_cache_visibility_count_buffer0_(
+          radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_VISIBILITYCOUNTBUFFER0])
+    , radiance_cache_visibility_count_buffer1_(
+          radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_VISIBILITYCOUNTBUFFER1])
     , radiance_cache_visibility_cell_buffer_(
           radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_VISIBILITYCELLBUFFER])
     , radiance_cache_visibility_query_buffer_(
@@ -385,6 +392,14 @@ GI1::HashGridCache::HashGridCache(GI1 &gi1)
           radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_VISIBILITYRAYBUFFER])
     , radiance_cache_visibility_ray_count_buffer_(
           radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_VISIBILITYRAYCOUNTBUFFER])
+    , radiance_cache_multibounce_count_buffer_(
+          radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_MULTIBOUNCECOUNTBUFFER])
+    , radiance_cache_multibounce_cell_buffer_(
+          radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_MULTIBOUNCECELLBUFFER])
+    , radiance_cache_multibounce_query_buffer_(
+          radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_MULTIBOUNCEQUERYBUFFER])
+    , radiance_cache_resolve_count_buffer_(radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_RESOLVECOUNTBUFFER])
+    , radiance_cache_resolve_buffer_(radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_RESOLVEBUFFER])
     , radiance_cache_packed_tile_count_buffer0_(
           radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_PACKEDTILECOUNTBUFFER0])
     , radiance_cache_packed_tile_count_buffer1_(
@@ -393,6 +408,8 @@ GI1::HashGridCache::HashGridCache(GI1 &gi1)
           radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_PACKEDTILEINDEXBUFFER0])
     , radiance_cache_packed_tile_index_buffer1_(
           radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_PACKEDTILEINDEXBUFFER1])
+    , radiance_cache_debug_decay_cell_buffer_(
+          radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_DEBUGDECAYCELLBUFFER])
     , radiance_cache_debug_cell_buffer_(radiance_cache_hash_buffer_float4_[HASHGRIDCACHE_DEBUGCELLBUFFER])
     , radiance_cache_debug_bucket_occupancy_buffer_(
           radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_BUCKETOCCUPANCYBUFFER])
@@ -514,15 +531,18 @@ void GI1::HashGridCache::ensureMemoryIsAllocated([[maybe_unused]] CapsaicinInter
 
     debug_total_memory_size_in_bytes += radiance_cache_update_cell_value_buffer_.getSize();
 
-    if (!radiance_cache_visibility_count_buffer_)
+    if (!radiance_cache_visibility_count_buffer0_)
     {
-        gfxDestroyBuffer(gfx_, radiance_cache_visibility_count_buffer_);
+        gfxDestroyBuffer(gfx_, radiance_cache_visibility_count_buffer0_);
+        gfxDestroyBuffer(gfx_, radiance_cache_visibility_count_buffer1_);
         gfxDestroyBuffer(gfx_, radiance_cache_visibility_ray_count_buffer_);
         gfxDestroyBuffer(gfx_, radiance_cache_packed_tile_count_buffer0_);
         gfxDestroyBuffer(gfx_, radiance_cache_packed_tile_count_buffer1_);
 
-        radiance_cache_visibility_count_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, 1);
-        radiance_cache_visibility_count_buffer_.setName("Capsaicin_RadianceCache_VisibilityCountBuffer");
+        radiance_cache_visibility_count_buffer0_ = gfxCreateBuffer<uint32_t>(gfx_, 1);
+        radiance_cache_visibility_count_buffer0_.setName("Capsaicin_RadianceCache_VisibilityCountBuffer0");
+        radiance_cache_visibility_count_buffer1_ = gfxCreateBuffer<uint32_t>(gfx_, 1);
+        radiance_cache_visibility_count_buffer1_.setName("Capsaicin_RadianceCache_VisibilityCountBuffer1");
 
         radiance_cache_visibility_ray_count_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, 1);
         radiance_cache_visibility_ray_count_buffer_.setName(
@@ -535,7 +555,8 @@ void GI1::HashGridCache::ensureMemoryIsAllocated([[maybe_unused]] CapsaicinInter
         radiance_cache_packed_tile_count_buffer1_.setName("Capsaicin_RadianceCache_PackedTileCountBuffer1");
     }
 
-    debug_total_memory_size_in_bytes += radiance_cache_visibility_count_buffer_.getSize();
+    debug_total_memory_size_in_bytes += radiance_cache_visibility_count_buffer0_.getSize();
+    debug_total_memory_size_in_bytes += radiance_cache_visibility_count_buffer1_.getSize();
     debug_total_memory_size_in_bytes += radiance_cache_visibility_ray_count_buffer_.getSize();
     debug_total_memory_size_in_bytes += radiance_cache_packed_tile_count_buffer0_.getSize();
     debug_total_memory_size_in_bytes += radiance_cache_packed_tile_count_buffer1_.getSize();
@@ -566,29 +587,28 @@ void GI1::HashGridCache::ensureMemoryIsAllocated([[maybe_unused]] CapsaicinInter
     {
         if (!radiance_cache_debug_cell_buffer_ || num_cells != num_cells_)
         {
+            gfxDestroyBuffer(gfx_, radiance_cache_debug_decay_cell_buffer_);
             gfxDestroyBuffer(gfx_, radiance_cache_debug_cell_buffer_);
-            gfxDestroyBuffer(gfx_, radiance_cache_decay_cell_buffer_);
 
+            radiance_cache_debug_decay_cell_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, num_cells);
+            radiance_cache_debug_decay_cell_buffer_.setName("Capsaicin_RadianceCache_DebugDecayCellBuffer");
             radiance_cache_debug_cell_buffer_ = gfxCreateBuffer<float4>(gfx_, num_cells);
             radiance_cache_debug_cell_buffer_.setName("Capsaicin_RadianceCache_DebugCellBuffer");
 
-            radiance_cache_decay_cell_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, num_cells);
-            radiance_cache_decay_cell_buffer_.setName("Capsaicin_RadianceCache_DecayCellBuffer");
-
-            gfxCommandClearBuffer(gfx_, radiance_cache_decay_cell_buffer_, 0xFFFFFFFFU);
+            gfxCommandClearBuffer(gfx_, radiance_cache_debug_decay_cell_buffer_, 0xFFFFFFFFu);
         }
     }
     else
     {
+        gfxDestroyBuffer(gfx_, radiance_cache_debug_decay_cell_buffer_);
         gfxDestroyBuffer(gfx_, radiance_cache_debug_cell_buffer_);
-        gfxDestroyBuffer(gfx_, radiance_cache_decay_cell_buffer_);
 
-        radiance_cache_debug_cell_buffer_ = {};
-        radiance_cache_decay_cell_buffer_ = {};
+        radiance_cache_debug_decay_cell_buffer_ = {};
+        radiance_cache_debug_cell_buffer_       = {};
     }
 
+    debug_total_memory_size_in_bytes += radiance_cache_debug_decay_cell_buffer_.getSize();
     debug_total_memory_size_in_bytes += radiance_cache_debug_cell_buffer_.getSize();
-    debug_total_memory_size_in_bytes += radiance_cache_decay_cell_buffer_.getSize();
 
     if (!radiance_cache_update_tile_buffer_ || max_ray_count != max_ray_count_ || num_cells != num_cells_)
     {
@@ -599,19 +619,20 @@ void GI1::HashGridCache::ensureMemoryIsAllocated([[maybe_unused]] CapsaicinInter
         gfxDestroyBuffer(gfx_, radiance_cache_visibility_ray_buffer_);
 
         radiance_cache_update_tile_buffer_ =
-            gfxCreateBuffer<uint32_t>(gfx_, GFX_MIN(max_ray_count, num_cells));
+            gfxCreateBuffer<uint32_t>(gfx_, GFX_MIN(2 * max_ray_count, num_cells));
         radiance_cache_update_tile_buffer_.setName("Capsaicin_RadianceCache_UpdateTileBuffer");
 
-        radiance_cache_visibility_buffer_ = gfxCreateBuffer<float4>(gfx_, max_ray_count);
+        radiance_cache_visibility_buffer_ =
+            gfxCreateBuffer<float4>(gfx_, 2 * max_ray_count); // BE CAREFUL: only bounce 0 and 1
         radiance_cache_visibility_buffer_.setName("Capsaicin_RadianceCache_VisibilityBuffer");
 
-        radiance_cache_visibility_cell_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, max_ray_count);
+        radiance_cache_visibility_cell_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, 2 * max_ray_count);
         radiance_cache_visibility_cell_buffer_.setName("Capsaicin_RadianceCache_VisibilityCellBuffer");
 
-        radiance_cache_visibility_query_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, max_ray_count);
+        radiance_cache_visibility_query_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, 2 * max_ray_count);
         radiance_cache_visibility_query_buffer_.setName("Capsaicin_RadianceCache_VisibilityQueryBuffer");
 
-        radiance_cache_visibility_ray_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, max_ray_count);
+        radiance_cache_visibility_ray_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, 2 * max_ray_count);
         radiance_cache_visibility_ray_buffer_.setName("Capsaicin_RadianceCache_VisibilityRayBuffer");
     }
 
@@ -620,6 +641,44 @@ void GI1::HashGridCache::ensureMemoryIsAllocated([[maybe_unused]] CapsaicinInter
     debug_total_memory_size_in_bytes += radiance_cache_visibility_cell_buffer_.getSize();
     debug_total_memory_size_in_bytes += radiance_cache_visibility_query_buffer_.getSize();
     debug_total_memory_size_in_bytes += radiance_cache_visibility_ray_buffer_.getSize();
+
+    if (!radiance_cache_multibounce_count_buffer_)
+    {
+        radiance_cache_multibounce_count_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, 1);
+        radiance_cache_multibounce_count_buffer_.setName("Capsaicin_RadianceCache_MultibounceCountBuffer");
+    }
+
+    debug_total_memory_size_in_bytes += radiance_cache_multibounce_count_buffer_.getSize();
+
+    if (!radiance_cache_multibounce_cell_buffer_ || max_ray_count != max_ray_count_)
+    {
+        radiance_cache_multibounce_cell_buffer_ =
+            gfxCreateBuffer<uint32_t>(gfx_, max_ray_count); // BE CAREFUL: we only resolve bounce 0
+        radiance_cache_multibounce_cell_buffer_.setName("Capsaicin_RadianceCache_MultibounceCellBuffer");
+        radiance_cache_multibounce_query_buffer_ =
+            gfxCreateBuffer<uint32_t>(gfx_, max_ray_count); // BE CAREFUL: we only resolve bounce 0
+        radiance_cache_multibounce_query_buffer_.setName("Capsaicin_RadianceCache_MultibounceQueryBuffer");
+    }
+
+    debug_total_memory_size_in_bytes += radiance_cache_multibounce_cell_buffer_.getSize();
+    debug_total_memory_size_in_bytes += radiance_cache_multibounce_query_buffer_.getSize();
+
+    if (!radiance_cache_resolve_count_buffer_)
+    {
+        radiance_cache_resolve_count_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, 1);
+        radiance_cache_resolve_count_buffer_.setName("Capsaicin_RadianceCache_ResolveCountBuffer");
+    }
+
+    debug_total_memory_size_in_bytes += radiance_cache_resolve_count_buffer_.getSize();
+
+    if (!radiance_cache_resolve_buffer_ || max_ray_count != max_ray_count_)
+    {
+        radiance_cache_resolve_buffer_ =
+            gfxCreateBuffer<uint32_t>(gfx_, max_ray_count); // BE CAREFUL: we only resolve bounce 0
+        radiance_cache_resolve_buffer_.setName("Capsaicin_RadianceCache_ResolveBuffer");
+    }
+
+    debug_total_memory_size_in_bytes += radiance_cache_resolve_buffer_.getSize();
 
     if (!radiance_cache_debug_free_bucket_buffer_)
     {
@@ -838,7 +897,7 @@ void GI1::WorldSpaceReSTIR::ensureMemoryIsAllocated([[maybe_unused]] CapsaicinIn
         reservoir_hash_list_count_buffer_.setName("Capsaicin_Reservoir_HashListCountBuffer");
     }
 
-    if (reservoir_indirect_sample_buffer_.getCount() < max_ray_count)
+    if (reservoir_indirect_sample_buffer_.getCount() < 2 * max_ray_count)
     {
         gfxDestroyBuffer(gfx_, reservoir_indirect_sample_buffer_);
         for (GfxBuffer const &reservoir_indirect_sample_normal_buffer :
@@ -853,7 +912,7 @@ void GI1::WorldSpaceReSTIR::ensureMemoryIsAllocated([[maybe_unused]] CapsaicinIn
             gfxDestroyBuffer(gfx_, reservoir_indirect_sample_reservoir_buffer);
         }
 
-        reservoir_indirect_sample_buffer_ = gfxCreateBuffer<float4>(gfx_, max_ray_count);
+        reservoir_indirect_sample_buffer_ = gfxCreateBuffer<float4>(gfx_, 2 * max_ray_count);
         reservoir_indirect_sample_buffer_.setName("Capsaicin_Reservoir_IndirectSampleBuffer");
 
         for (uint32_t i = 0; i < ARRAYSIZE(reservoir_indirect_sample_normal_buffers_); ++i)
@@ -861,11 +920,11 @@ void GI1::WorldSpaceReSTIR::ensureMemoryIsAllocated([[maybe_unused]] CapsaicinIn
             char buffer[64];
             GFX_SNPRINTF(buffer, sizeof(buffer), "Capsaicin_Reservoir_IndirectSampleNormalBuffer%u", i);
 
-            reservoir_indirect_sample_normal_buffers_[i] = gfxCreateBuffer<uint32_t>(gfx_, max_ray_count);
+            reservoir_indirect_sample_normal_buffers_[i] = gfxCreateBuffer<uint32_t>(gfx_, 2 * max_ray_count);
             reservoir_indirect_sample_normal_buffers_[i].setName(buffer);
         }
 
-        reservoir_indirect_sample_material_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, max_ray_count);
+        reservoir_indirect_sample_material_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, 2 * max_ray_count);
         reservoir_indirect_sample_material_buffer_.setName(
             "Capsaicin_Reservoir_IndirectSamplerMaterialBuffer");
 
@@ -874,7 +933,7 @@ void GI1::WorldSpaceReSTIR::ensureMemoryIsAllocated([[maybe_unused]] CapsaicinIn
             char buffer[64];
             GFX_SNPRINTF(buffer, sizeof(buffer), "Capsaicin_Reservoir_IndirectSampleReservoirBuffer%u", i);
 
-            reservoir_indirect_sample_reservoir_buffers_[i] = gfxCreateBuffer<uint4>(gfx_, max_ray_count);
+            reservoir_indirect_sample_reservoir_buffers_[i] = gfxCreateBuffer<uint4>(gfx_, 2 * max_ray_count);
             reservoir_indirect_sample_reservoir_buffers_[i].setName(buffer);
         }
     }
@@ -1153,6 +1212,10 @@ RenderOptionList GI1::getRenderOptions() noexcept
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_use_dxr10, options_));
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_use_resampling, options_));
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_use_direct_lighting, options_));
+    newOptions.emplace(RENDER_OPTION_MAKE(gi1_use_temporal_feedback, options_));
+    newOptions.emplace(RENDER_OPTION_MAKE(gi1_use_temporal_multibounce_feedback, options_));
+    newOptions.emplace(RENDER_OPTION_MAKE(gi1_use_bypass_cache, options_));
+    newOptions.emplace(RENDER_OPTION_MAKE(gi1_use_multibounce, options_));
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_disable_albedo_textures, options_));
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_disable_specular_materials, options_));
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_hash_grid_cache_cell_size, options_));
@@ -1161,6 +1224,9 @@ RenderOptionList GI1::getRenderOptions() noexcept
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_hash_grid_cache_num_buckets, options_));
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_hash_grid_cache_num_tiles_per_bucket, options_));
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_hash_grid_cache_max_sample_count, options_));
+    newOptions.emplace(
+        RENDER_OPTION_MAKE(gi1_hash_grid_cache_discard_multibounce_ray_probability, options_));
+    newOptions.emplace(RENDER_OPTION_MAKE(gi1_hash_grid_cache_max_multibounce_sample_count, options_));
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_hash_grid_cache_debug_mip_level, options_));
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_hash_grid_cache_debug_propagate, options_));
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_hash_grid_cache_debug_max_cell_decay, options_));
@@ -1184,8 +1250,6 @@ RenderOptionList GI1::getRenderOptions() noexcept
     newOptions.emplace(
         RENDER_OPTION_MAKE(gi1_glossy_reflections_mark_fireflies_half_high_threshold, options_));
     newOptions.emplace(
-        RENDER_OPTION_MAKE(gi1_mutual_sampling, options_));
-    newOptions.emplace(
         RENDER_OPTION_MAKE(gi1_glossy_reflections_mark_fireflies_full_high_threshold, options_));
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_glossy_reflections_cleanup_fireflies_half_radius, options_));
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_glossy_reflections_cleanup_fireflies_full_radius, options_));
@@ -1196,13 +1260,15 @@ GI1::RenderOptions GI1::convertOptions(RenderOptionList const &options) noexcept
 {
     RenderOptions newOptions;
 
-    RENDER_OPTION_GET(gi1_mutual_sampling, newOptions, options)
-
     RENDER_OPTION_GET(gi1_use_dxr10, newOptions, options)
     RENDER_OPTION_GET(gi1_use_resampling, newOptions, options)
     newOptions.gi1_disable_alpha_testing = *std::get_if<bool>(
         &options.at("visibility_buffer_disable_alpha_testing")); // Map the option from visibility buffer
     RENDER_OPTION_GET(gi1_use_direct_lighting, newOptions, options)
+    RENDER_OPTION_GET(gi1_use_temporal_feedback, newOptions, options)
+    RENDER_OPTION_GET(gi1_use_temporal_multibounce_feedback, newOptions, options)
+    RENDER_OPTION_GET(gi1_use_bypass_cache, newOptions, options)
+    RENDER_OPTION_GET(gi1_use_multibounce, newOptions, options)
     RENDER_OPTION_GET(gi1_disable_albedo_textures, newOptions, options)
     RENDER_OPTION_GET(gi1_disable_specular_materials, newOptions, options)
     RENDER_OPTION_GET(gi1_hash_grid_cache_cell_size, newOptions, options)
@@ -1211,6 +1277,8 @@ GI1::RenderOptions GI1::convertOptions(RenderOptionList const &options) noexcept
     RENDER_OPTION_GET(gi1_hash_grid_cache_num_buckets, newOptions, options)
     RENDER_OPTION_GET(gi1_hash_grid_cache_num_tiles_per_bucket, newOptions, options)
     RENDER_OPTION_GET(gi1_hash_grid_cache_max_sample_count, newOptions, options)
+    RENDER_OPTION_GET(gi1_hash_grid_cache_discard_multibounce_ray_probability, newOptions, options)
+    RENDER_OPTION_GET(gi1_hash_grid_cache_max_multibounce_sample_count, newOptions, options)
     RENDER_OPTION_GET(gi1_hash_grid_cache_debug_mip_level, newOptions, options)
     RENDER_OPTION_GET(gi1_hash_grid_cache_debug_propagate, newOptions, options)
     RENDER_OPTION_GET(gi1_hash_grid_cache_debug_max_cell_decay, newOptions, options)
@@ -1313,10 +1381,6 @@ bool GI1::init(CapsaicinInternal const &capsaicin) noexcept
         base_defines.push_back(i.c_str());
     }
 
-    if (options_.gi1_mutual_sampling)
-    {
-        base_defines.push_back("USE_MUTUAL_SAMPLING");
-    }
     if (options_.gi1_disable_alpha_testing)
     {
         base_defines.push_back("DISABLE_ALPHA_TESTING");
@@ -1426,6 +1490,19 @@ bool GI1::init(CapsaicinInternal const &capsaicin) noexcept
                 static_cast<uint32_t>(populate_screen_probes_subobjects.size()),
                 debug_hash_cells_defines.data(), debug_hash_cells_define_count);
 
+        std::vector<char const *> populate_multibounce_cells_exports;
+        populate_multibounce_cells_exports.push_back(kPopulateMultibounceCellsRaygenShaderName);
+        populate_multibounce_cells_exports.push_back(kPopulateMultibounceCellsMissShaderName);
+        populate_multibounce_cells_exports.push_back(kPopulateMultibounceCellsAnyHitShaderName);
+        populate_multibounce_cells_exports.push_back(kPopulateMultibounceCellsClosestHitShaderName);
+        std::vector<char const *> populate_multibounce_cells_subobjects = base_subobjects;
+        populate_multibounce_cells_subobjects.push_back(kPopulateMultibounceCellsHitGroupName);
+        populate_multibounce_cells_kernel_ = gfxCreateRaytracingKernel(gfx_, gi1_program_, nullptr, 0,
+            populate_multibounce_cells_exports.data(), (uint32_t)populate_multibounce_cells_exports.size(),
+            populate_multibounce_cells_subobjects.data(),
+            (uint32_t)populate_multibounce_cells_subobjects.size(), debug_hash_cells_defines.data(),
+            debug_hash_cells_define_count);
+
         std::vector<char const *> populate_cells_kernel_exports;
         populate_cells_kernel_exports.push_back(kPopulateCellsRaygenShaderName);
         populate_cells_kernel_exports.push_back(kPopulateCellsMissShaderName);
@@ -1459,18 +1536,22 @@ bool GI1::init(CapsaicinInternal const &capsaicin) noexcept
             gfxSceneGetInstanceCount(capsaicin.getScene())
                 * capsaicin.getSbtStrideInEntries(kGfxShaderGroupType_Hit),
             capsaicin.getSbtStrideInEntries(kGfxShaderGroupType_Callable)};
-        GfxKernel sbt_kernels[] {
-            populate_screen_probes_kernel_, populate_cells_kernel_, trace_reflections_kernel_};
+        GfxKernel sbt_kernels[] {populate_screen_probes_kernel_, populate_multibounce_cells_kernel_,
+            populate_cells_kernel_, trace_reflections_kernel_};
         sbt_ = gfxCreateSbt(gfx_, sbt_kernels, ARRAYSIZE(sbt_kernels), entry_count);
     }
     else
     {
-        populate_screen_probes_kernel_ = gfxCreateComputeKernel(gfx_, gi1_program_,
-            "PopulateScreenProbesMain", debug_hash_cells_defines.data(), debug_hash_cells_define_count);
-        populate_cells_kernel_         = gfxCreateComputeKernel(
+        populate_screen_probes_kernel_     = gfxCreateComputeKernel(gfx_, gi1_program_,
+                "PopulateScreenProbesMain", debug_hash_cells_defines.data(), debug_hash_cells_define_count);
+        populate_multibounce_cells_kernel_ = gfxCreateComputeKernel(gfx_, gi1_program_,
+            "PopulateMultibounceCellsMain", debug_hash_cells_defines.data(), debug_hash_cells_define_count);
+        populate_cells_kernel_ = gfxCreateComputeKernel(
             gfx_, gi1_program_, "PopulateCellsMain", resampling_defines.data(), resampling_define_count);
         trace_reflections_kernel_ = gfxCreateComputeKernel(gfx_, gi1_program_, "TraceReflectionsMain");
     }
+    update_multibounce_cells_kernel_ = gfxCreateComputeKernel(
+        gfx_, gi1_program_, "UpdateMultibounceCellsMain", debug_hash_cells_defines.data());
     blend_screen_probes_kernel_       = gfxCreateComputeKernel(gfx_, gi1_program_, "BlendScreenProbes");
     reorder_screen_probes_kernel_     = gfxCreateComputeKernel(gfx_, gi1_program_, "ReorderScreenProbes");
     filter_screen_probes_kernel_      = gfxCreateComputeKernel(gfx_, gi1_program_, "FilterScreenProbes");
@@ -1497,6 +1578,8 @@ bool GI1::init(CapsaicinInternal const &capsaicin) noexcept
     clear_reservoirs_kernel_    = gfxCreateComputeKernel(gfx_, gi1_program_, "ClearReservoirs");
     generate_reservoirs_kernel_ = gfxCreateComputeKernel(
         gfx_, gi1_program_, "GenerateReservoirs", resampling_defines.data(), resampling_define_count);
+    generate_multibounce_reservoirs_kernel_ = gfxCreateComputeKernel(gfx_, gi1_program_,
+        "GenerateMultibounceReservoirs", resampling_defines.data(), resampling_define_count);
     compact_reservoirs_kernel_  = gfxCreateComputeKernel(gfx_, gi1_program_, "CompactReservoirs");
     resample_reservoirs_kernel_ = gfxCreateComputeKernel(
         gfx_, gi1_program_, "ResampleReservoirs", base_defines.data(), base_define_count);
@@ -1532,7 +1615,7 @@ bool GI1::init(CapsaicinInternal const &capsaicin) noexcept
     irradiance_buffer_ = capsaicin.createRenderTexture(DXGI_FORMAT_R16G16B16A16_FLOAT, "GI_IrradianceBuffer");
 
     // Reserve position values with light bounds sampler
-    light_sampler->reserveBoundsValues(screen_probes_.max_ray_count, this);
+    light_sampler->reserveBoundsValues(screen_probes_.max_ray_count * 2, this);
 
     return !!filter_gi_kernel_;
 }
@@ -1555,7 +1638,6 @@ void GI1::render(CapsaicinInternal &capsaicin) noexcept
         (options.gi1_use_resampling != options_.gi1_use_resampling
             || options.gi1_disable_alpha_testing != options_.gi1_disable_alpha_testing
             || options.gi1_disable_specular_materials != options_.gi1_disable_specular_materials
-            || options.gi1_mutual_sampling != options_.gi1_mutual_sampling
             || light_sampler->needsRecompile(capsaicin) || needs_debug_view)
         || options_.gi1_use_dxr10 != options.gi1_use_dxr10
         || options_.gi1_hash_grid_cache_debug_stats != options.gi1_hash_grid_cache_debug_stats;
@@ -1705,6 +1787,9 @@ void GI1::render(CapsaicinInternal &capsaicin) noexcept
     hash_grid_cache_constant_data.first_cell_offset_tile_mip3 = hash_grid_cache_.first_cell_offset_tile_mip3_;
     hash_grid_cache_constant_data.buffer_ping_pong = hash_grid_cache_.radiance_cache_hash_buffer_ping_pong_;
     hash_grid_cache_constant_data.max_sample_count = options_.gi1_hash_grid_cache_max_sample_count;
+    hash_grid_cache_constant_data.discard_multibounce_ray_probability =
+        options_.gi1_hash_grid_cache_discard_multibounce_ray_probability;
+    hash_grid_cache_constant_data.max_multibounce_sample_count = options_.gi1_hash_grid_cache_max_multibounce_sample_count;
     hash_grid_cache_constant_data.debug_mip_level =
         static_cast<uint32_t>(options_.gi1_hash_grid_cache_debug_mip_level);
     hash_grid_cache_constant_data.debug_propagate =
@@ -1806,9 +1891,12 @@ void GI1::render(CapsaicinInternal &capsaicin) noexcept
     gfxProgramSetParameter(gfx_, gi1_program_, "g_BufferDimensions", capsaicin.getRenderDimensions());
     gfxProgramSetParameter(
         gfx_, gi1_program_, "g_UseDirectLighting", options_.gi1_use_direct_lighting ? 1 : 0);
+        gfxProgramSetParameter(
+        gfx_, gi1_program_, "g_UseTemporalFeedback", options_.gi1_use_temporal_feedback ? 1 : 0);
+    gfxProgramSetParameter(gfx_, gi1_program_, "g_UseTemporalMultibounceFeedback", options_.gi1_use_temporal_multibounce_feedback ? 1 : 0);
+    gfxProgramSetParameter(gfx_, gi1_program_, "g_UseBypassCache", options_.gi1_use_bypass_cache ? 1 : 0);
     gfxProgramSetParameter(
         gfx_, gi1_program_, "g_DisableAlbedoTextures", options_.gi1_disable_albedo_textures ? 1 : 0);
-
     gfxProgramSetParameter(
         gfx_, gi1_program_, "g_DepthBuffer", capsaicin.getSharedTexture("VisibilityDepth"));
     gfxProgramSetParameter(
@@ -2178,6 +2266,41 @@ void GI1::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandDispatch(gfx_, num_groups_x, 1, 1);
     }
 
+    // Discover indirect cells we need for multibounce
+    if (options.gi1_use_multibounce)
+    {
+        if (options.gi1_use_dxr10)
+        {
+            TimedSection const timed_section(*this, "PopulateMultibounceCells");
+
+            gfxSbtSetShaderGroup(
+                gfx_, sbt_, kGfxShaderGroupType_Raygen, 0, kPopulateMultibounceCellsRaygenShaderName);
+            gfxSbtSetShaderGroup(
+                gfx_, sbt_, kGfxShaderGroupType_Miss, 0, kPopulateMultibounceCellsMissShaderName);
+            for (uint32_t i = 0; i < capsaicin.getRaytracingPrimitiveCount(); i++)
+            {
+                gfxSbtSetShaderGroup(gfx_, sbt_, kGfxShaderGroupType_Hit,
+                    i * capsaicin.getSbtStrideInEntries(kGfxShaderGroupType_Hit),
+                    kPopulateMultibounceCellsHitGroupName);
+            }
+
+            generateDispatchRays(hash_grid_cache_.radiance_cache_visibility_count_buffer0_);
+
+            gfxCommandBindKernel(gfx_, populate_multibounce_cells_kernel_);
+            gfxCommandDispatchRaysIndirect(gfx_, sbt_, dispatch_command_buffer_);
+        }
+        else
+        {
+            TimedSection const timed_section(*this, "PopulateMultibounceCells");
+
+            uint32_t const *num_threads = gfxKernelGetNumThreads(gfx_, populate_multibounce_cells_kernel_);
+            generateDispatch(hash_grid_cache_.radiance_cache_visibility_count_buffer0_, num_threads[0]);
+
+            gfxCommandBindKernel(gfx_, populate_multibounce_cells_kernel_);
+            gfxCommandDispatchIndirect(gfx_, dispatch_command_buffer_);
+        }
+    }
+    
     // Update light sampling data structure
     {
         light_sampler->update(capsaicin, this);
@@ -2201,9 +2324,20 @@ void GI1::render(CapsaicinInternal &capsaicin) noexcept
         TimedSection const timed_section(*this, "GenerateReservoirs");
 
         uint32_t const *num_threads = gfxKernelGetNumThreads(gfx_, generate_reservoirs_kernel_);
-        generateDispatch(hash_grid_cache_.radiance_cache_visibility_count_buffer_, num_threads[0]);
+        generateDispatch(hash_grid_cache_.radiance_cache_visibility_count_buffer0_, num_threads[0]);
 
         gfxCommandBindKernel(gfx_, generate_reservoirs_kernel_);
+        gfxCommandDispatchIndirect(gfx_, dispatch_command_buffer_);
+    }
+
+    if (options.gi1_use_multibounce)
+    {
+        TimedSection const timed_section(*this, "GenerateMultibounceReservoirs");
+
+        uint32_t const *num_threads = gfxKernelGetNumThreads(gfx_, generate_multibounce_reservoirs_kernel_);
+        generateDispatch(hash_grid_cache_.radiance_cache_visibility_count_buffer1_, num_threads[0]);
+
+        gfxCommandBindKernel(gfx_, generate_multibounce_reservoirs_kernel_);
         gfxCommandDispatchIndirect(gfx_, dispatch_command_buffer_);
     }
 
@@ -2239,7 +2373,7 @@ void GI1::render(CapsaicinInternal &capsaicin) noexcept
     // Populate the cells of our world-space hash-grid radiance cache
     if (options.gi1_use_dxr10)
     {
-        TimedSection const timed_section(*this, "PopulateRadianceCache");
+        TimedSection const timed_section(*this, "PopulateCells");
 
         gfxSbtSetShaderGroup(gfx_, sbt_, kGfxShaderGroupType_Raygen, 0, kPopulateCellsRaygenShaderName);
         gfxSbtSetShaderGroup(gfx_, sbt_, kGfxShaderGroupType_Miss, 0, kPopulateCellsMissShaderName);
@@ -2256,7 +2390,7 @@ void GI1::render(CapsaicinInternal &capsaicin) noexcept
     }
     else
     {
-        TimedSection const timed_section(*this, "PopulateRadianceCache");
+        TimedSection const timed_section(*this, "PopulateCells");
 
         uint32_t const *num_threads = gfxKernelGetNumThreads(gfx_, populate_cells_kernel_);
         generateDispatch(hash_grid_cache_.radiance_cache_visibility_ray_count_buffer_, num_threads[0]);
@@ -2265,9 +2399,9 @@ void GI1::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandDispatchIndirect(gfx_, dispatch_command_buffer_);
     }
 
-    // Update our tiles using the result of the raytracing
+    // Filter tiles (include first and second bounces cells)
     {
-        TimedSection const timed_section(*this, "UpdateRadianceCache");
+        TimedSection const timed_section(*this, "UpdateTiles");
 
         gfxCommandBindKernel(gfx_, generate_update_tiles_dispatch_kernel_);
         gfxCommandDispatch(gfx_, 1, 1, 1);
@@ -2276,12 +2410,24 @@ void GI1::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandDispatchIndirect(gfx_, dispatch_command_buffer_);
     }
 
-    // Resolve our cells into the per-query storage
+    // Resolve bounce 1 cells into first bounce cells using last frame
+    if (options.gi1_use_multibounce)
     {
-        TimedSection const timed_section(*this, "ResolveRadianceCache");
+        TimedSection const timed_section(*this, "UpdateMultibounceCells");
+
+        uint32_t const *num_threads = gfxKernelGetNumThreads(gfx_, update_multibounce_cells_kernel_);
+        generateDispatch(hash_grid_cache_.radiance_cache_multibounce_count_buffer_, num_threads[0]);
+
+        gfxCommandBindKernel(gfx_, update_multibounce_cells_kernel_);
+        gfxCommandDispatchIndirect(gfx_, dispatch_command_buffer_);
+    }
+
+    // Resolve first bounce cells into screen probes
+    {
+        TimedSection const timed_section(*this, "ResolveCells");
 
         uint32_t const *num_threads = gfxKernelGetNumThreads(gfx_, resolve_cells_kernel_);
-        generateDispatch(hash_grid_cache_.radiance_cache_visibility_ray_count_buffer_, num_threads[0]);
+        generateDispatch(hash_grid_cache_.radiance_cache_resolve_count_buffer_, num_threads[0]);
 
         gfxCommandBindKernel(gfx_, resolve_cells_kernel_);
         gfxCommandDispatchIndirect(gfx_, dispatch_command_buffer_);
@@ -2911,6 +3057,8 @@ void GI1::terminate() noexcept
     gfxDestroyKernel(gfx_, interpolate_screen_probes_kernel_);
 
     gfxDestroyKernel(gfx_, purge_tiles_kernel_);
+    gfxDestroyKernel(gfx_, populate_multibounce_cells_kernel_);
+    gfxDestroyKernel(gfx_, update_multibounce_cells_kernel_);
     gfxDestroyKernel(gfx_, populate_cells_kernel_);
     gfxDestroyKernel(gfx_, update_tiles_kernel_);
     gfxDestroyKernel(gfx_, resolve_cells_kernel_);
@@ -2923,6 +3071,7 @@ void GI1::terminate() noexcept
 
     gfxDestroyKernel(gfx_, clear_reservoirs_kernel_);
     gfxDestroyKernel(gfx_, generate_reservoirs_kernel_);
+    gfxDestroyKernel(gfx_, generate_multibounce_reservoirs_kernel_);
     gfxDestroyKernel(gfx_, compact_reservoirs_kernel_);
     gfxDestroyKernel(gfx_, resample_reservoirs_kernel_);
 
@@ -2958,8 +3107,6 @@ void GI1::renderGUI(CapsaicinInternal &capsaicin) const noexcept
     ImGui::Checkbox("Disable Albedo Textures", &capsaicin.getOption<bool>("gi1_disable_albedo_textures"));
     ImGui::Checkbox(
         "Disable Specular Materials", &capsaicin.getOption<bool>("gi1_disable_specular_materials"));
-
-    ImGui::Checkbox("Use Mutual Sampling", &capsaicin.getOption<bool>("gi1_mutual_sampling"));
 
     if (ImGui::CollapsingHeader("Hash Grid Cache", ImGuiTreeNodeFlags_None))
     {

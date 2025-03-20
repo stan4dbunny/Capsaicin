@@ -38,6 +38,9 @@ float3 g_PreviousEye;
 int2   g_BlurDirection;
 uint2  g_BufferDimensions;
 uint   g_UseDirectLighting;
+uint   g_UseTemporalFeedback;
+uint   g_UseTemporalMultibounceFeedback;
+uint   g_UseBypassCache;
 StructuredBuffer<float> g_Exposure;
 
 Texture2D g_DepthBuffer;
@@ -132,9 +135,13 @@ struct PopulateScreenProbesPayload
     float hit_dist;
 };
 
+struct PopulateMultibounceCellsPayload
+{
+    float hit_dist;
+};
+
 struct PopulateCellsPayload
 {
-    uint      query_index;
     float3    world;
     float3    normal;
     float3    lighting;
@@ -166,8 +173,11 @@ void ClearCounters()
 
     g_HashGridCache_PackedTileCountBuffer[0]    = 0;
     g_HashGridCache_UpdateTileCountBuffer[0]    = 0;
-    g_HashGridCache_VisibilityCountBuffer[0]    = 0;
+    g_HashGridCache_VisibilityCountBuffer0[0]   = 0;
+    g_HashGridCache_VisibilityCountBuffer1[0]   = 0;
     g_HashGridCache_VisibilityRayCountBuffer[0] = 0;
+    g_HashGridCache_MultibounceCountBuffer[0]   = 0;
+    g_HashGridCache_ResolveCountBuffer[0]       = 0;
 
     g_GlossyReflections_RtSampleCountBuffer[0] = 0;
 }
@@ -995,7 +1005,7 @@ void PopulateScreenProbesHandleHit(uint did, inout PopulateScreenProbesPayload p
 
         // We update the cell index for later passes
         uint visibility_index;
-        InterlockedAdd(g_HashGridCache_VisibilityCountBuffer[0], 1, visibility_index);
+        InterlockedAdd(g_HashGridCache_VisibilityCountBuffer0[0], 1, visibility_index);
         g_HashGridCache_VisibilityBuffer[visibility_index]      = HashGridCache_PackVisibility(visibility);
         g_HashGridCache_VisibilityCellBuffer[visibility_index]  = cell_index;
         g_HashGridCache_VisibilityQueryBuffer[visibility_index] = did;
@@ -1047,9 +1057,10 @@ void PopulateScreenProbesHandleHit(uint did, inout PopulateScreenProbesPayload p
         uint debug_cell_index = HashGridCache_PackDebugCell(data, tile_index, packed_debug_cell);
 
         // BE CAREFUL: writing to g_HashGridCache_DebugCellBuffer isn't atomic and several writings could occur
-        uint previous_cell_decay;
-        InterlockedExchange(g_HashGridCache_DecayCellBuffer[debug_cell_index], g_FrameIndex, previous_cell_decay);
-        if (previous_cell_decay != g_FrameIndex)
+        //             debug_cell_index can be different from cell_index
+        uint previous_debug_cell_decay;
+        InterlockedExchange(g_HashGridCache_DebugDecayCellBuffer[debug_cell_index], g_FrameIndex, previous_debug_cell_decay);
+        if (previous_debug_cell_decay != g_FrameIndex)
         {
             g_HashGridCache_DebugCellBuffer[debug_cell_index] = packed_debug_cell;
         }
@@ -1740,7 +1751,7 @@ void PurgeTiles(in uint did : SV_DispatchThreadID)
         for (int cell_offset = 0; cell_offset < g_HashGridCacheConstants.num_cells_per_tile; ++cell_offset)
         {
             uint cell_index = HashGridCache_CellIndex(cell_offset, tile_index);
-            g_HashGridCache_DecayCellBuffer[cell_index] = 0xFFFFFFFFu;
+            g_HashGridCache_DebugDecayCellBuffer[cell_index] = 0xFFFFFFFFu;
         }
 #endif // DEBUG_HASH_CELLS
 
@@ -1921,7 +1932,13 @@ void PopulateMultibounceCells(uint did)
     vertices.n2 = transformNormal(vertices.n2, transform);
 
     float3 world = interpolate(vertices.v0, vertices.v1, vertices.v2, visibility.barycentrics);
+<<<<<<< HEAD
     float3 normal = (visibility.is_front_face ? 1.0f : -1.0f) * normalize(interpolate(vertices.n0, vertices.n1, vertices.n2, visibility.barycentrics));
+=======
+    float3 edge10 = vertices.v1 - vertices.v0;
+    float3 edge20 = vertices.v2 - vertices.v0;
+    float3 normal = normalize(transformNormal(cross(edge10, edge20) * (visibility.is_front_face ? 1.0f : -1.0f), transform));
+>>>>>>> 0e86341 (new branch)
 
     // Sample diffuse direction
     Quaternion local_rotation = QuaternionRotationZ(normal);
@@ -1994,14 +2011,12 @@ void PopulateCellsHandleMiss(uint did, inout PopulateCellsPayload payload, RayDe
 {
     float3       light_radiance = payload.lighting;
     float        light_weight   = payload.reservoir.W;
-    uint         probe_index    = ScreenProbes_GetCellAndProbeIndex(payload.query_index).y;
-    uint2        seed           = ScreenProbes_UnpackSeed(g_ScreenProbes_ProbeSpawnBuffer[probe_index]);
+    
     MaterialBRDF material       = unpackMaterial(g_Reservoir_IndirectSampleMaterialBuffer[did]);
 
     // Recover the ray origin
-    float  depth  = g_DepthBuffer.Load(int3(seed, 0)).x;
-    float2 uv     = (seed + 0.5f) / g_BufferDimensions;
-    float3 origin = transformPointProjection(uv, depth, g_ViewProjectionInverse);
+    float3 origin, unused;
+    Reservoir_UnpackIndirectSample(g_Reservoir_IndirectSampleBuffer[did], origin, unused);
 
     // And evaluate our lighting
     payload.lighting =
@@ -2047,7 +2062,6 @@ void PopulateCells(uint did)
     uint                     visibility_index = (g_HashGridCache_VisibilityRayBuffer[did] & ~0x80000000u);
     HashGridCache_Visibility visibility       = HashGridCache_UnpackVisibility(g_HashGridCache_VisibilityBuffer[visibility_index]);
 
-    uint query_index = g_HashGridCache_VisibilityQueryBuffer[visibility_index];
 
     // Reconstruct world-space position and normal
     Instance instance  = g_InstanceBuffer[visibility.instance_index];
@@ -2082,7 +2096,6 @@ void PopulateCells(uint did)
     ray_desc.TMax      = hasLightPosition(selected_light) ? 1.0f - SHADOW_RAY_EPSILON : FLT_MAX;
 
     PopulateCellsPayload payload;
-    payload.query_index = query_index;
     payload.world       = world;
     payload.normal      = normal;
     payload.lighting    = light_radiance;
@@ -2091,14 +2104,9 @@ void PopulateCells(uint did)
     PopulateCellsTraceRay(did, payload, ray_desc);
     
     uint4 quantized_radiance;
-#ifdef USE_MUTUAL_SAMPLING
   
-#else
-
-    
     // And update the hash-grid cell payload
     quantized_radiance = HashGridCache_QuantizeRadiance(payload.lighting);
-#endif
     
     uint cell_index = g_HashGridCache_VisibilityCellBuffer[visibility_index];
     if (dot(payload.lighting, payload.lighting) > 0.0f)
@@ -2112,15 +2120,12 @@ void PopulateCells(uint did)
     // In some cases, we want to bypass the cache to avoid light leaks;
     // so we simply patch the screen probes directly and invalidate the
     // cache connection.
-    bool is_bypass_cache = ((g_HashGridCache_VisibilityRayBuffer[did] >> 31) != 0);
+    bool bypass_cache = ((g_HashGridCache_VisibilityRayBuffer[did] >> 31) != 0);
 
-    if (is_bypass_cache)
+    if (bypass_cache)
     {
-    #ifdef USE_MUTUAL_SAMPLING
-    #else
+        uint query_index = g_HashGridCache_VisibilityQueryBuffer[visibility_index];
         ScreenProbes_AccumulateRadiance(query_index, GIDenoiser_RemoveNaNs(payload.lighting));
-    #endif
-        
     }
 }
 
@@ -2287,14 +2292,15 @@ void UpdateTiles(in uint group_id : SV_GroupID, in uint2 group_thread_id : SV_Gr
 [numthreads(64, 1, 1)]
 void ResolveCells(in uint did : SV_DispatchThreadID)
 {
-    if (did >= g_HashGridCache_VisibilityRayCountBuffer[0])
+    if (did >= g_HashGridCache_ResolveCountBuffer[0])
     {
         return; // out of bounds
     }
 
-    uint visibility_index = g_HashGridCache_VisibilityRayBuffer[did];
+    uint visibility_index = g_HashGridCache_ResolveBuffer[did];
 
-    if ((visibility_index >> 31) != 0)
+    bool bypass_cache     = (visibility_index >> 31) != 0;
+    if (bypass_cache)
     {
         return; // do not use filtered radiance
     }
@@ -2302,7 +2308,7 @@ void ResolveCells(in uint did : SV_DispatchThreadID)
     uint cell_index  = g_HashGridCache_VisibilityCellBuffer[visibility_index];
     uint query_index = g_HashGridCache_VisibilityQueryBuffer[visibility_index];
 
-    float4 radiance = HashGridCache_FilteredRadiance(cell_index, false);
+    float4 radiance = HashGridCache_FilteredRadiance(cell_index, g_HashGridCacheConstants.max_sample_count, false);
 
     ScreenProbes_AccumulateRadiance(query_index, radiance.xyz / max(radiance.w, 1.0f));
 }
@@ -2321,7 +2327,7 @@ void ClearReservoirs(in uint did : SV_DispatchThreadID)
 [numthreads(64, 1, 1)]
 void GenerateReservoirs(in uint did : SV_DispatchThreadID)
 {
-    if (did >= g_HashGridCache_VisibilityCountBuffer[0])
+    if (did >= g_HashGridCache_VisibilityCountBuffer0[0])
     {
         return; // out of bounds
     }
@@ -2377,7 +2383,7 @@ void GenerateReservoirs(in uint did : SV_DispatchThreadID)
     // evaluated.
     // If successful, we inject the reprojected radiance into the cache so it can be re-used
     // by neighbor vertices but bypass the filtered readback as the sample is already denoised.
-    if (g_UseDirectLighting != 0)
+    if (g_UseDirectLighting != 0 && g_UseTemporalFeedback == 1)
     {
         float3 homogeneous = transformPointProjection(world, g_ViewProjection);
 
@@ -2434,16 +2440,10 @@ void GenerateReservoirs(in uint did : SV_DispatchThreadID)
     LightSampler lightSampler = MakeLightSampler(random);
     Reservoir reservoir = lightSampler.sampleLightListCone<kReservoir_SampleCount>(world, normal, view_direction, solid_angle, materialBRDF);
 
-    if (!reservoir.isValid())
-    {
-        return;
-    }
-
-    // Append our resampled shadow ray
-    uint ray_index;
-    InterlockedAdd(g_HashGridCache_VisibilityRayCountBuffer[0], 1, ray_index);
-
-    g_HashGridCache_VisibilityRayBuffer[ray_index] = did;   // compact the surviving shadow rays
+    // Resolve cells (no reservoir only discards nee, not second bounce contrib we need to resolve into screen probes)
+    uint resolve_index;
+    InterlockedAdd(g_HashGridCache_ResolveCountBuffer[0], 1, resolve_index);
+    g_HashGridCache_ResolveBuffer[resolve_index] = did;
 
     // Here, we check that the ray has traversed at least a full hash cell
     // before hitting something.
@@ -2470,10 +2470,26 @@ void GenerateReservoirs(in uint did : SV_DispatchThreadID)
     // Such a scenario mostly occurs if the length of the ray connecting
     // the 2nd vertex is less than the size of the hash cell being used.
     // So, we detect this case and flag a bypass of the filtered readback.
-    float cell_size  = HashGridCache_GetCellSize(world);
-    float ray_length = distance(origin, world);
 
-    if (ray_length < cell_size)
+    float cell_size    = HashGridCache_GetCellSize(world);
+    float ray_length   = distance(origin, world);
+    bool  bypass_cache = ray_length < cell_size && g_UseBypassCache;
+    if (bypass_cache)
+    {
+        g_HashGridCache_ResolveBuffer[resolve_index] |= 0x80000000u;
+    }
+
+    if (!reservoir.isValid())
+    {
+        return;
+    }
+
+    // Append our resampled shadow ray
+    uint ray_index;
+    InterlockedAdd(g_HashGridCache_VisibilityRayCountBuffer[0], 1, ray_index);
+
+    g_HashGridCache_VisibilityRayBuffer[ray_index] = did;   // compact the surviving shadow rays
+    if (bypass_cache)
     {
         g_HashGridCache_VisibilityRayBuffer[ray_index] |= 0x80000000u;
     }
@@ -2486,7 +2502,6 @@ void GenerateReservoirs(in uint did : SV_DispatchThreadID)
     jitter *= Reservoir_GetCellSize(world) * kReservoir_SpatialJitter;
     Reservoir_InsertEntry(ray_index, world + jitter.x * b1 + jitter.y * b2);
 
-    g_Reservoir_IndirectSampleBuffer[ray_index]       = Reservoir_PackIndirectSample(origin, world);
     g_Reservoir_IndirectSampleNormalBuffer[ray_index] = packNormal(normal);
 #endif // USE_RESAMPLING
 
@@ -2520,7 +2535,13 @@ void GenerateMultibounceReservoirs(in uint did : SV_DispatchThreadID)
     vertices.v1 = transformPoint(vertices.v1, transform);
     vertices.v2 = transformPoint(vertices.v2, transform);
     float3 world = interpolate(vertices.v0, vertices.v1, vertices.v2, visibility.barycentrics);
+<<<<<<< HEAD
     float3 normal = (visibility.is_front_face ? 1.0f : -1.0f) * normalize(interpolate(vertices.n0, vertices.n1, vertices.n2, visibility.barycentrics));
+=======
+    float3 edge10 = vertices.v1 - vertices.v0;
+    float3 edge20 = vertices.v2 - vertices.v0;
+    float3 normal = normalize(transformNormal(cross(edge10, edge20) * (visibility.is_front_face ? 1.0f : -1.0f), transform));
+>>>>>>> 0e86341 (new branch)
     Material material = g_MaterialBuffer[instance.material_index];
     float2   mesh_uv  = interpolate(vertices.uv0, vertices.uv1, vertices.uv2, visibility.barycentrics);
 
@@ -2532,7 +2553,11 @@ void GenerateMultibounceReservoirs(in uint did : SV_DispatchThreadID)
     Instance query_instance  = g_InstanceBuffer[query_visibility.instance_index];
     float3x4 query_transform = g_TransformBuffer[query_instance.transform_index];
     
+<<<<<<< HEAD
     TriangleNorm query_vertices = fetchVerticesNorm(query_instance, query_visibility.primitive_index);
+=======
+    TriangleNormUV query_vertices = fetchVerticesNormUV(query_instance, query_visibility.primitive_index);
+>>>>>>> 0e86341 (new branch)
     
     query_vertices.v0 = transformPoint(query_vertices.v0, query_transform);
     query_vertices.v1 = transformPoint(query_vertices.v1, query_transform);
@@ -2818,7 +2843,7 @@ void TraceReflectionsHandleHit(uint did, inout TraceReflectionsPayload payload, 
                 uint previous_tile_decay;
                 InterlockedExchange(g_HashGridCache_DecayTileBuffer[tile_index], g_FrameIndex, previous_tile_decay);
 
-                float4 li            = HashGridCache_FilteredRadiance(cell_index, false);
+                float4 li            = HashGridCache_FilteredRadiance(cell_index, g_HashGridCacheConstants.max_sample_count, false);
                 payload.radiance     = (li.xyz / max(li.w, 1.0f));
                 payload.hit_distance = hit_distance;
             }

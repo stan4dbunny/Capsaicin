@@ -47,25 +47,30 @@ public:
 
     struct RenderOptions
     {
-        bool  gi1_use_dxr10                                 = false;
-        bool  gi1_use_resampling                            = false;
-        bool  gi1_disable_alpha_testing                     = false;
-        bool  gi1_use_direct_lighting                       = true;
-        bool  gi1_disable_albedo_textures                   = false;
-        bool  gi1_disable_specular_materials                = false;
-        float gi1_hash_grid_cache_cell_size                 = 32.0F;
-        float gi1_hash_grid_cache_min_cell_size             = 1e-1F;
-        int   gi1_hash_grid_cache_tile_cell_ratio           = 8;  // 8x8               = 64
-        int   gi1_hash_grid_cache_num_buckets               = 12; // 1 << 12           = 4096
-        int   gi1_hash_grid_cache_num_tiles_per_bucket      = 4; // 1 <<  4           = 16     total : 4194304
-        float gi1_hash_grid_cache_max_sample_count          = 16.F; //
-        int   gi1_hash_grid_cache_debug_mip_level           = 0;
-        bool  gi1_hash_grid_cache_debug_propagate           = false;
-        int   gi1_hash_grid_cache_debug_max_cell_decay      = 0; // Debug cells touched this frame
-        bool  gi1_hash_grid_cache_debug_stats               = false;
-        int   gi1_hash_grid_cache_debug_max_bucket_overflow = 64;
-        float gi1_reservoir_cache_cell_size                 = 16.0F;
-        bool  gi1_mutual_sampling                      = false;
+        bool  gi1_use_dxr10                                           = false;
+        bool  gi1_use_resampling                                      = false;
+        bool  gi1_disable_alpha_testing                               = false;
+        bool  gi1_use_direct_lighting                                 = true;
+        bool  gi1_use_temporal_feedback                               = true;
+        bool  gi1_use_temporal_multibounce_feedback                   = true;
+        bool  gi1_use_bypass_cache                                    = true;
+        bool  gi1_use_multibounce                                     = true;
+        bool  gi1_disable_albedo_textures                             = false;
+        bool  gi1_disable_specular_materials                          = false;
+        float gi1_hash_grid_cache_cell_size                           = 32.0f;
+        float gi1_hash_grid_cache_min_cell_size                       = 1e-1f;
+        int   gi1_hash_grid_cache_tile_cell_ratio                     = 8;    // 8x8
+        int   gi1_hash_grid_cache_num_buckets                         = 14;   // 1 << 14           = 4096        
+        int   gi1_hash_grid_cache_num_tiles_per_bucket                = 4;    // 1 <<  4
+        float gi1_hash_grid_cache_max_sample_count                    = 16.f; //
+        float gi1_hash_grid_cache_discard_multibounce_ray_probability = 0.7f;
+        float gi1_hash_grid_cache_max_multibounce_sample_count        = 256.f;
+        int   gi1_hash_grid_cache_debug_mip_level                     = 0;
+        bool  gi1_hash_grid_cache_debug_propagate                     = false;
+        int   gi1_hash_grid_cache_debug_max_cell_decay                = 0; // Debug cells touched this frame
+        bool  gi1_hash_grid_cache_debug_stats                         = false;
+        int   gi1_hash_grid_cache_debug_max_bucket_overflow           = 64;
+        float gi1_reservoir_cache_cell_size                           = 16.0f;
         
         bool  gi1_glossy_reflections_halfres                            = true;
         int   gi1_glossy_reflections_denoiser_mode                      = 1; // Atrous Ratio Estimator
@@ -268,22 +273,28 @@ protected:
         GfxBuffer  radiance_cache_hash_buffer_float4_[HASHGRID_FLOAT4_BUFFER_COUNT];
         uint32_t   radiance_cache_hash_buffer_ping_pong_;
         GfxBuffer &radiance_cache_hash_buffer_;
-        GfxBuffer &radiance_cache_decay_cell_buffer_;
         GfxBuffer &radiance_cache_decay_tile_buffer_;
         GfxBuffer &radiance_cache_value_buffer_;
         GfxBuffer &radiance_cache_update_tile_buffer_;
         GfxBuffer &radiance_cache_update_tile_count_buffer_;
         GfxBuffer &radiance_cache_update_cell_value_buffer_;
         GfxBuffer &radiance_cache_visibility_buffer_;
-        GfxBuffer &radiance_cache_visibility_count_buffer_;
+        GfxBuffer &radiance_cache_visibility_count_buffer0_;
+        GfxBuffer &radiance_cache_visibility_count_buffer1_;
         GfxBuffer &radiance_cache_visibility_cell_buffer_;
         GfxBuffer &radiance_cache_visibility_query_buffer_;
         GfxBuffer &radiance_cache_visibility_ray_buffer_;
         GfxBuffer &radiance_cache_visibility_ray_count_buffer_;
+        GfxBuffer &radiance_cache_multibounce_count_buffer_;
+        GfxBuffer &radiance_cache_multibounce_cell_buffer_;
+        GfxBuffer &radiance_cache_multibounce_query_buffer_;
+        GfxBuffer &radiance_cache_resolve_count_buffer_;
+        GfxBuffer &radiance_cache_resolve_buffer_;
         GfxBuffer &radiance_cache_packed_tile_count_buffer0_;
         GfxBuffer &radiance_cache_packed_tile_count_buffer1_;
         GfxBuffer &radiance_cache_packed_tile_index_buffer0_;
         GfxBuffer &radiance_cache_packed_tile_index_buffer1_;
+        GfxBuffer &radiance_cache_debug_decay_cell_buffer_;
         GfxBuffer &radiance_cache_debug_cell_buffer_;
         GfxBuffer &radiance_cache_debug_bucket_occupancy_buffer_;
         GfxBuffer &radiance_cache_debug_bucket_overflow_count_buffer_;
@@ -431,7 +442,9 @@ protected:
 
     // Hash grid cache kernels:
     GfxKernel purge_tiles_kernel_;
+    GfxKernel populate_multibounce_cells_kernel_;
     GfxKernel populate_cells_kernel_;
+    GfxKernel update_multibounce_cells_kernel_;
     GfxKernel update_tiles_kernel_;
     GfxKernel resolve_cells_kernel_;
     GfxKernel clear_bucket_overflow_count_kernel_;
@@ -444,6 +457,7 @@ protected:
     // World-space ReSTIR kernels:
     GfxKernel clear_reservoirs_kernel_;
     GfxKernel generate_reservoirs_kernel_;
+    GfxKernel generate_multibounce_reservoirs_kernel_;
     GfxKernel compact_reservoirs_kernel_;
     GfxKernel resample_reservoirs_kernel_;
 

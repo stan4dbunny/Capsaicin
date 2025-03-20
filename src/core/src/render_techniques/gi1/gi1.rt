@@ -31,6 +31,12 @@ TriangleHitGroup PopulateScreenProbesHitGroup =
     "PopulateScreenProbesClosestHit", // ClosestHit
 };
 
+TriangleHitGroup PopulateMultibounceCellsHitGroup =
+{
+    "PopulateMultibounceCellsAnyHit",     // AnyHit
+    "PopulateMultibounceCellsClosestHit", // ClosestHit
+};
+
 TriangleHitGroup PopulateCellsHitGroup =
 {
     "PopulateCellsAnyHit",     // AnyHit
@@ -81,6 +87,35 @@ void PopulateScreenProbesMiss(inout PopulateScreenProbesPayload payload)
 {
     payload.hit_dist = 1e9f;
     PopulateScreenProbesHandleMiss(payload, GetRayDescRt());
+}
+
+[shader("raygeneration")]
+void PopulateMultibounceCellsRaygen()
+{
+    PopulateMultibounceCells(DispatchRaysIndex().x);
+}
+
+[shader("anyhit")]
+void PopulateMultibounceCellsAnyHit(inout PopulateMultibounceCellsPayload payload, in BuiltInTriangleIntersectionAttributes attr)
+{
+    if (!AlphaTest(GetHitInfoRt(attr)))
+    {
+        IgnoreHit();
+    }
+}
+
+[shader("closesthit")]
+void PopulateMultibounceCellsClosestHit(inout PopulateMultibounceCellsPayload payload, in BuiltInTriangleIntersectionAttributes attr)
+{
+    payload.hit_dist = RayTCurrent();
+    PopulateMultibounceCellsHandleHit(DispatchRaysIndex().x, payload, GetRayDescRt(), GetHitInfoRt(attr));
+}
+
+[shader("miss")]
+void PopulateMultibounceCellsMiss(inout PopulateMultibounceCellsPayload payload)
+{
+    payload.hit_dist = MAX_HIT_DISTANCE;
+    PopulateMultibounceCellsHandleMiss(payload, GetRayDescRt());
 }
 
 [shader("raygeneration")]
