@@ -53,22 +53,28 @@ RWStructuredBuffer<uint2>  g_HashGridCache_BuffersUint2[]  : register(space97);
 RWStructuredBuffer<float4> g_HashGridCache_BuffersFloat4[] : register(space98);
 
 #define                    g_HashGridCache_HashBuffer                    g_HashGridCache_BuffersUint  [HASHGRIDCACHE_HASHBUFFER]
-#define                    g_HashGridCache_DecayCellBuffer               g_HashGridCache_BuffersUint  [HASHGRIDCACHE_DECAYCELLBUFFER]
 #define                    g_HashGridCache_DecayTileBuffer               g_HashGridCache_BuffersUint  [HASHGRIDCACHE_DECAYTILEBUFFER]
 #define                    g_HashGridCache_ValueBuffer                   g_HashGridCache_BuffersUint2 [HASHGRIDCACHE_VALUEBUFFER]
 #define                    g_HashGridCache_UpdateTileBuffer              g_HashGridCache_BuffersUint  [HASHGRIDCACHE_UPDATETILEBUFFER]
 #define                    g_HashGridCache_UpdateTileCountBuffer         g_HashGridCache_BuffersUint  [HASHGRIDCACHE_UPDATETILECOUNTBUFFER]
 #define                    g_HashGridCache_UpdateCellValueBuffer         g_HashGridCache_BuffersUint  [HASHGRIDCACHE_UPDATECELLVALUEBUFFER]
 #define                    g_HashGridCache_VisibilityBuffer              g_HashGridCache_BuffersFloat4[HASHGRIDCACHE_VISIBILITYBUFFER]
-#define                    g_HashGridCache_VisibilityCountBuffer         g_HashGridCache_BuffersUint  [HASHGRIDCACHE_VISIBILITYCOUNTBUFFER]
+#define                    g_HashGridCache_VisibilityCountBuffer0        g_HashGridCache_BuffersUint  [HASHGRIDCACHE_VISIBILITYCOUNTBUFFER0]
+#define                    g_HashGridCache_VisibilityCountBuffer1        g_HashGridCache_BuffersUint  [HASHGRIDCACHE_VISIBILITYCOUNTBUFFER1]
 #define                    g_HashGridCache_VisibilityCellBuffer          g_HashGridCache_BuffersUint  [HASHGRIDCACHE_VISIBILITYCELLBUFFER]
 #define                    g_HashGridCache_VisibilityQueryBuffer         g_HashGridCache_BuffersUint  [HASHGRIDCACHE_VISIBILITYQUERYBUFFER]
 #define                    g_HashGridCache_VisibilityRayBuffer           g_HashGridCache_BuffersUint  [HASHGRIDCACHE_VISIBILITYRAYBUFFER]
 #define                    g_HashGridCache_VisibilityRayCountBuffer      g_HashGridCache_BuffersUint  [HASHGRIDCACHE_VISIBILITYRAYCOUNTBUFFER]
+#define                    g_HashGridCache_MultibounceCountBuffer        g_HashGridCache_BuffersUint  [HASHGRIDCACHE_MULTIBOUNCECOUNTBUFFER]
+#define                    g_HashGridCache_MultibounceCellBuffer         g_HashGridCache_BuffersUint  [HASHGRIDCACHE_MULTIBOUNCECELLBUFFER]
+#define                    g_HashGridCache_MultibounceQueryBuffer        g_HashGridCache_BuffersUint  [HASHGRIDCACHE_MULTIBOUNCEQUERYBUFFER]
+#define                    g_HashGridCache_ResolveCountBuffer            g_HashGridCache_BuffersUint  [HASHGRIDCACHE_RESOLVECOUNTBUFFER]
+#define                    g_HashGridCache_ResolveBuffer                 g_HashGridCache_BuffersUint  [HASHGRIDCACHE_RESOLVEBUFFER]
 #define                    g_HashGridCache_PackedTileCountBuffer         g_HashGridCache_BuffersUint  [HASHGRIDCACHE_PACKEDTILECOUNTBUFFER0 + g_HashGridCacheConstants.buffer_ping_pong]
 #define                    g_HashGridCache_PreviousPackedTileCountBuffer g_HashGridCache_BuffersUint  [HASHGRIDCACHE_PACKEDTILECOUNTBUFFER1 - g_HashGridCacheConstants.buffer_ping_pong]
 #define                    g_HashGridCache_PackedTileIndexBuffer         g_HashGridCache_BuffersUint  [HASHGRIDCACHE_PACKEDTILEINDEXBUFFER0 + g_HashGridCacheConstants.buffer_ping_pong]
 #define                    g_HashGridCache_PreviousPackedTileIndexBuffer g_HashGridCache_BuffersUint  [HASHGRIDCACHE_PACKEDTILEINDEXBUFFER1 - g_HashGridCacheConstants.buffer_ping_pong]
+#define                    g_HashGridCache_DebugDecayCellBuffer          g_HashGridCache_BuffersUint  [HASHGRIDCACHE_DEBUGDECAYCELLBUFFER]
 #define                    g_HashGridCache_DebugCellBuffer               g_HashGridCache_BuffersFloat4[HASHGRIDCACHE_DEBUGCELLBUFFER]
 #define                    g_HashGridCache_BucketOccupancyBuffer         g_HashGridCache_BuffersUint  [HASHGRIDCACHE_BUCKETOCCUPANCYBUFFER]
 #define                    g_HashGridCache_BucketOverflowCountBuffer     g_HashGridCache_BuffersUint  [HASHGRIDCACHE_BUCKETOVERFLOWCOUNTBUFFER]
@@ -403,7 +409,7 @@ float3 HashGridCache_HeatColor(float heatValue)
     return heatColor;
 }
 
-float4 HashGridCache_FilteredRadiance(uint cell_index_mip0, bool debug_mip_level)
+float4 HashGridCache_FilteredRadiance(uint cell_index_mip0, float max_sample_count, bool debug_mip_level)
 {
     uint2 cell_offset_mip0;
     uint  tile_index      = HashGridCache_CellOffsetMip0(cell_index_mip0, cell_offset_mip0);
@@ -420,17 +426,17 @@ float4 HashGridCache_FilteredRadiance(uint cell_index_mip0, bool debug_mip_level
     radiance = debug_mip_level            ? float4(HashGridCache_HeatColor(1.000f), radiance.w) : radiance;
 
     // Mip 1
-    use_mip  = radiance.w < g_HashGridCacheConstants.max_sample_count && cell_index_mip1 != kGI1_InvalidId;
+    use_mip = radiance.w < max_sample_count && cell_index_mip1 != kGI1_InvalidId;
     radiance = use_mip ? HashGridCache_UnpackRadiance(g_HashGridCache_ValueBuffer[cell_index_mip1]) : radiance;
     radiance = debug_mip_level && use_mip ? float4(HashGridCache_HeatColor(0.666f), radiance.w) : radiance;
 
     // Mip 2
-    use_mip  = radiance.w < g_HashGridCacheConstants.max_sample_count && cell_index_mip2 != kGI1_InvalidId;
+    use_mip = radiance.w < max_sample_count && cell_index_mip2 != kGI1_InvalidId;
     radiance = use_mip ? HashGridCache_UnpackRadiance(g_HashGridCache_ValueBuffer[cell_index_mip2]) : radiance;
     radiance = debug_mip_level && use_mip ? float4(HashGridCache_HeatColor(0.333f), radiance.w) : radiance;
 
     // Mip 3
-    use_mip  = radiance.w < g_HashGridCacheConstants.max_sample_count && cell_index_mip3 != kGI1_InvalidId;
+    use_mip = radiance.w < max_sample_count && cell_index_mip3 != kGI1_InvalidId;
     radiance = use_mip ? HashGridCache_UnpackRadiance(g_HashGridCache_ValueBuffer[cell_index_mip3]) : radiance;
     radiance = debug_mip_level && use_mip ? float4(HashGridCache_HeatColor(0.000f), radiance.w) : radiance;
 
