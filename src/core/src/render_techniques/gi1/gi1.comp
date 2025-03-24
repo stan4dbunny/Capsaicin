@@ -1932,9 +1932,7 @@ void PopulateMultibounceCells(uint did)
     vertices.n2 = transformNormal(vertices.n2, transform);
 
     float3 world = interpolate(vertices.v0, vertices.v1, vertices.v2, visibility.barycentrics);
-    float3 edge10 = vertices.v1 - vertices.v0;
-    float3 edge20 = vertices.v2 - vertices.v0;
-    float3 normal = normalize(transformNormal(cross(edge10, edge20) * (visibility.is_front_face ? 1.0f : -1.0f), transform));
+    float3 normal = (visibility.is_front_face ? 1.0f : -1.0f) * normalize(interpolate(vertices.n0, vertices.n1, vertices.n2, visibility.barycentrics));
 
     // Sample diffuse direction
     Quaternion local_rotation = QuaternionRotationZ(normal);
@@ -2531,9 +2529,7 @@ void GenerateMultibounceReservoirs(in uint did : SV_DispatchThreadID)
     vertices.v1 = transformPoint(vertices.v1, transform);
     vertices.v2 = transformPoint(vertices.v2, transform);
     float3 world = interpolate(vertices.v0, vertices.v1, vertices.v2, visibility.barycentrics);
-    float3 edge10 = vertices.v1 - vertices.v0;
-    float3 edge20 = vertices.v2 - vertices.v0;
-    float3 normal = normalize(transformNormal(cross(edge10, edge20) * (visibility.is_front_face ? 1.0f : -1.0f), transform));
+    float3 normal = (visibility.is_front_face ? 1.0f : -1.0f) * normalize(interpolate(vertices.n0, vertices.n1, vertices.n2, visibility.barycentrics));
     Material material = g_MaterialBuffer[instance.material_index];
     float2   mesh_uv  = interpolate(vertices.uv0, vertices.uv1, vertices.uv2, visibility.barycentrics);
 
@@ -2545,7 +2541,7 @@ void GenerateMultibounceReservoirs(in uint did : SV_DispatchThreadID)
     Instance query_instance  = g_InstanceBuffer[query_visibility.instance_index];
     float3x4 query_transform = g_TransformBuffer[query_instance.transform_index];
     
-    TriangleNormUV query_vertices = fetchVerticesNormUV(query_instance, query_visibility.primitive_index);
+    TriangleNorm query_vertices = fetchVerticesNorm(query_instance, query_visibility.primitive_index);
     
     query_vertices.v0 = transformPoint(query_vertices.v0, query_transform);
     query_vertices.v1 = transformPoint(query_vertices.v1, query_transform);

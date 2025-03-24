@@ -387,13 +387,13 @@ bool pathNext(MaterialBRDF materialBRDF, inout StratifiedSampler randomStratifie
     if (currentBounce == 0)
     {
         materialBRDF.F0 = float3(1, 1, 1);
-        materialBRDF.roughnessAlpha = 0.0f;
+        //materialBRDF.roughnessAlpha = 0.0f; should be commented out for glossy reflections
     }
 #endif  
     rayDirection = sampleBRDF(materialBRDF, randomStratified, normal, viewDirection, sampleReflectance, samplePDF, specularSampled);
 
 #ifdef DEBUG_REFLECTIONS    
-    // Reflection debug view: If we decide to bounce diffusely on the first bounce, we terminate the ray
+    // If we decide to bounce diffusely on the first bounce, we terminate the ray
     if (!specularSampled && currentBounce == 0)
     {
         return false;

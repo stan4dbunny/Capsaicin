@@ -118,7 +118,7 @@ PS_OUTPUT ResolveGI1(in float4 pos : SV_Position)
 #ifndef DISABLE_SPECULAR_MATERIALS
         materialBRDF.F0 = 0.0f.xxx;
 #endif // DISABLE_SPECULAR_MATERIALS
-    }
+    } 
 
     PS_OUTPUT output;
 
@@ -135,12 +135,6 @@ PS_OUTPUT ResolveGI1(in float4 pos : SV_Position)
     float3 specular_dominant_half_vector = normalize(view_direction + specular_dominant_direction);
     float dotHV = saturate(dot(view_direction, specular_dominant_half_vector));
     
-    
-    //if (material_evaluated.roughness <= g_GlossyReflectionsConstants.high_roughness_threshold)
-    //{
-    //    materialBRDF.F0 = float3(1, 1, 1);
-    //    material_evaluated.roughness = 0.f;
-    //}
     float3 diffuse_compensation = diffuseCompensation(materialBRDF.F0, dotHV);
 
     // diffuse term
