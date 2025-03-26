@@ -1920,8 +1920,9 @@ void PopulateMultibounceCells(uint did)
     // Reconstruct world-space position and normal
     Instance instance = g_InstanceBuffer[visibility.instance_index];
     float3x4 transform = g_TransformBuffer[instance.transform_index];
-
-    TriangleNorm vertices = fetchVerticesNorm(instance, visibility.primitive_index);
+    Material material = g_MaterialBuffer[instance.material_index];
+    
+    TriangleNormUV vertices = fetchVerticesNormUV(instance, visibility.primitive_index);
 
     vertices.v0 = transformPoint(vertices.v0, transform);
     vertices.v1 = transformPoint(vertices.v1, transform);
@@ -1934,11 +1935,42 @@ void PopulateMultibounceCells(uint did)
     float3 world = interpolate(vertices.v0, vertices.v1, vertices.v2, visibility.barycentrics);
     float3 normal = (visibility.is_front_face ? 1.0f : -1.0f) * normalize(interpolate(vertices.n0, vertices.n1, vertices.n2, visibility.barycentrics));
 
-    // Sample diffuse direction
-    Quaternion local_rotation = QuaternionRotationZ(normal);
-    float3 local_direction    = sampleLambert(0.f, s.xy);
-    float3 direction          = normalize(local_rotation.inverse().transform(local_direction));
+    float2 mesh_uv = interpolate(vertices.uv0, vertices.uv1, vertices.uv2, visibility.barycentrics);
+    MaterialBRDF materialBRDF = MakeMaterialBRDF(material, mesh_uv);
 
+    float3 view_direction = normalize(g_Eye - world);
+    
+    // Transform the view direction into the surfaces tangent coordinate space (oriented so that z axis is aligned to normal)
+    Quaternion local_Rotation = QuaternionRotationZ(normal);
+    float3 local_View = local_Rotation.transform(view_direction);
+
+    float2 samples = random.rand2();
+    float3 shading_normal = normal; // normalize(2.0f * g_ShadingNormalBuffer.Load(int3(samples, 0)).xyz - 1.0f); // FIXME, samples? should it be 
+    
+    float3 direction;
+#ifndef DISABLE_SPECULAR_MATERIALS
+    // calculate diffuse, specular layer probability
+    float3 specularLightDirection = calculateGGXSpecularDirection(shading_normal, view_direction, sqrt(materialBRDF.roughnessAlpha));
+    float3 specularHalfVector = normalize(view_direction + specularLightDirection);
+    float specularDotHV = saturate(dot(specularHalfVector, view_direction));
+    float probabilityBRDF = calculateBRDFProbability(materialBRDF.F0, specularDotHV, materialBRDF.albedo);
+    
+    // specular layer case
+    if (random.rand() < probabilityBRDF)
+    {
+        // sample direction by BRDF importance sampling
+        float3 newLight = sampleGGX(materialBRDF.roughnessAlpha, local_View, samples);
+        direction = normalize(local_Rotation.inverse().transform(newLight));
+    }
+    // diffuse layer case
+    else
+#endif
+    {
+        // Sample diffuse direction
+        float3 local_direction = sampleLambert(0.f, s.xy);
+        direction = normalize(local_Rotation.inverse().transform(local_direction));
+    }
+    
     // Trace
     RayDesc ray_desc;
     ray_desc.Direction = direction;
@@ -2606,7 +2638,8 @@ void GenerateMultibounceReservoirs(in uint did : SV_DispatchThreadID)
     material2.roughness = 1.0f;
 #endif // DISABLE_SPECULAR_MATERIALS
     MaterialBRDF materialBRDF = MakeMaterialBRDF(material2);
-    LightSampler lightSampler = MakeLightSampler(MakeRandom(did, g_FrameIndex));
+    Random random = MakeRandom(did, g_FrameIndex);
+    LightSampler lightSampler = MakeLightSampler(random);
     Reservoir reservoir = lightSampler.sampleLightListCone<kReservoir_SampleCount>(world, normal, view_direction, solid_angle, materialBRDF);
 
     if (!reservoir.isValid())

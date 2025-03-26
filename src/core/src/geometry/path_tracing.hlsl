@@ -384,6 +384,7 @@ bool pathNext(MaterialBRDF materialBRDF, inout StratifiedSampler randomStratifie
     bool specularSampled;
     
 #ifdef DEBUG_REFLECTIONS
+    // We want to reflect all light on the first bounce
     if (currentBounce == 0)
     {
         materialBRDF.F0 = float3(1, 1, 1);
