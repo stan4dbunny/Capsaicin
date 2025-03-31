@@ -1942,41 +1942,16 @@ void PopulateMultibounceCells(uint did)
     
     // Transform the view direction into the surfaces tangent coordinate space (oriented so that z axis is aligned to normal)
     Quaternion local_Rotation = QuaternionRotationZ(normal);
-    float3 local_View = local_Rotation.transform(view_direction);
 
-    float2 samples = random.rand2();
-    float3 shading_normal = normal; // normalize(2.0f * g_ShadingNormalBuffer.Load(int3(samples, 0)).xyz - 1.0f); // FIXME, samples? should it be 
-    
-    float3 direction;
-#ifndef DISABLE_SPECULAR_MATERIALS
-    // calculate diffuse, specular layer probability
-    float3 specularLightDirection = calculateGGXSpecularDirection(shading_normal, view_direction, sqrt(materialBRDF.roughnessAlpha));
-    float3 specularHalfVector = normalize(view_direction + specularLightDirection);
-    float specularDotHV = saturate(dot(specularHalfVector, view_direction));
-    float probabilityBRDF = calculateBRDFProbability(materialBRDF.F0, specularDotHV, materialBRDF.albedo);
-    
-    // specular layer case
-    if (random.rand() < probabilityBRDF)
-    {
-        // sample direction by BRDF importance sampling
-        float3 newLight = sampleGGX(materialBRDF.roughnessAlpha, local_View, samples);
-        direction = normalize(local_Rotation.inverse().transform(newLight));
-    }
-    // diffuse layer case
-    else
-#endif
-    {
-        // Sample diffuse direction
-        float3 local_direction = sampleLambert(0.f, s.xy);
-        direction = normalize(local_Rotation.inverse().transform(local_direction));
-    }
-    
+    float3 local_direction = sampleLambert(0.f, s.xy);
+    float3 direction = normalize(local_Rotation.inverse().transform(local_direction));
+
     // Trace
     RayDesc ray_desc;
     ray_desc.Direction = direction;
     ray_desc.Origin    = offsetPosition(world, normal);
     ray_desc.TMin      = 0.0f;
-    ray_desc.TMax      = MAX_HIT_DISTANCE;
+    ray_desc.TMax = MAX_HIT_DISTANCE;
 
     PopulateMultibounceCellsPayload payload;
     PopulateMultibounceCellsTraceRay(did, payload, ray_desc);
@@ -2012,6 +1987,8 @@ void UpdateMultibounceCells(uint did)
     InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * query_index + 3], quantized_radiance.w);
 
     // BE CAREFUL: we found no leak with close cells, consider adding bypass if multibounce leaks appear
+    
+    
 }
 
 [numthreads(32, 1, 1)]
@@ -2633,15 +2610,25 @@ void GenerateMultibounceReservoirs(in uint did : SV_DispatchThreadID)
     MaterialEvaluated material2 = MakeMaterialEvaluated(material, mesh_uv);
 #ifndef DISABLE_SPECULAR_MATERIALS
     // Force diffuse lighting on secondary bounce to reduce noise
-    // TODO: This is technically not purely diffuse as still has fresnel
     material2.metallicity = 0.0f;
     material2.roughness = 1.0f;
 #endif // DISABLE_SPECULAR_MATERIALS
+    
     MaterialBRDF materialBRDF = MakeMaterialBRDF(material2);
+    
+#ifndef DISABLE_SPECULAR_MATERIALS
+    // Force diffuse lighting on secondary bounce to reduce noise
+    materialBRDF.F0 = 0.0f.xxx;
+#endif // DISABLE_SPECULAR_MATERIALS
+    
     Random random = MakeRandom(did, g_FrameIndex);
     LightSampler lightSampler = MakeLightSampler(random);
     Reservoir reservoir = lightSampler.sampleLightListCone<kReservoir_SampleCount>(world, normal, view_direction, solid_angle, materialBRDF);
 
+    float cell_size = HashGridCache_GetCellSize(world);
+    float ray_length = distance(origin, world);
+    bool bypass_cache = ray_length < cell_size && g_UseBypassCache;
+    
     if (!reservoir.isValid())
     {
         return;
@@ -2650,8 +2637,12 @@ void GenerateMultibounceReservoirs(in uint did : SV_DispatchThreadID)
     // Append our resampled shadow ray
     uint ray_index;
     InterlockedAdd(g_HashGridCache_VisibilityRayCountBuffer[0], 1, ray_index);
-    g_HashGridCache_VisibilityRayBuffer[ray_index] = did;   // compact the surviving shadow rays
-
+    
+    g_HashGridCache_VisibilityRayBuffer[ray_index] = did; // compact the surviving shadow rays
+    if (bypass_cache)
+    {
+        g_HashGridCache_VisibilityRayBuffer[ray_index] |= 0x80000000u;
+    }
     // Insert the reservoir into the hash table
 #ifdef USE_RESAMPLING
     float3 b1, b2;
