@@ -1709,7 +1709,7 @@ void InterpolateScreenProbes(in uint2 did : SV_DispatchThreadID)
         {
             g_GlossyReflections_SpecularBuffer[did]  = float4(radiance, denoiser_hint);
             g_GlossyReflections_DirectionBuffer[did] = float4(direction, 0.f);                  // BE CAREFUL: no parallax correction
-        }
+        } 
     }
 #endif // DISABLE_SPECULAR_MATERIALS
 }
@@ -1973,6 +1973,13 @@ void UpdateMultibounceCells(uint did)
     uint cell_index  = g_HashGridCache_MultibounceCellBuffer[did];
     uint query_index = g_HashGridCache_MultibounceQueryBuffer[did];   // BE CAREFUL: also a cell
 
+    
+    bool bypass_cache = ((g_HashGridCache_VisibilityRayBuffer[did] >> 31) != 0);
+    if (bypass_cache)
+    {
+        return;
+    }
+    
     // BE CAREFUL: g_HashGridCache_ValueBuffer contains last frame
     float4 radiance           = HashGridCache_FilteredRadiance(cell_index, g_HashGridCacheConstants.max_multibounce_sample_count, false);
            radiance.rgb      /= 1.0 - g_HashGridCacheConstants.discard_multibounce_ray_probability;
@@ -1987,8 +1994,6 @@ void UpdateMultibounceCells(uint did)
     InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * query_index + 3], quantized_radiance.w);
 
     // BE CAREFUL: we found no leak with close cells, consider adding bypass if multibounce leaks appear
-    
-    
 }
 
 [numthreads(32, 1, 1)]
@@ -2123,12 +2128,26 @@ void PopulateCells(uint did)
     // In some cases, we want to bypass the cache to avoid light leaks;
     // so we simply patch the screen probes directly and invalidate the
     // cache connection.
+    
+    bool second_bounce = did >= g_HashGridCache_VisibilityCountBuffer0[0]; // CHECK
     bool bypass_cache = ((g_HashGridCache_VisibilityRayBuffer[did] >> 31) != 0);
 
-    if (bypass_cache)
+    if (bypass_cache && !second_bounce)
     {
         uint query_index = g_HashGridCache_VisibilityQueryBuffer[visibility_index];
         ScreenProbes_AccumulateRadiance(query_index, GIDenoiser_RemoveNaNs(payload.lighting));
+    }
+    else if (bypass_cache && second_bounce)
+    {
+        uint query_index = g_HashGridCache_VisibilityQueryBuffer[visibility_index]; // CHECK
+        
+        if (dot(payload.lighting, payload.lighting) > 0.0f)
+        {
+            InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * query_index + 0], quantized_radiance.x);
+            InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * query_index + 1], quantized_radiance.y);
+            InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * query_index + 2], quantized_radiance.z);
+        }
+        InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * query_index + 3], quantized_radiance.w);
     }
 }
 
@@ -2615,12 +2634,7 @@ void GenerateMultibounceReservoirs(in uint did : SV_DispatchThreadID)
 #endif // DISABLE_SPECULAR_MATERIALS
     
     MaterialBRDF materialBRDF = MakeMaterialBRDF(material2);
-    
-#ifndef DISABLE_SPECULAR_MATERIALS
-    // Force diffuse lighting on secondary bounce to reduce noise
-    materialBRDF.F0 = 0.0f.xxx;
-#endif // DISABLE_SPECULAR_MATERIALS
-    
+     
     Random random = MakeRandom(did, g_FrameIndex);
     LightSampler lightSampler = MakeLightSampler(random);
     Reservoir reservoir = lightSampler.sampleLightListCone<kReservoir_SampleCount>(world, normal, view_direction, solid_angle, materialBRDF);

@@ -88,6 +88,8 @@ public:
         float gi1_glossy_reflections_mark_fireflies_full_high_threshold = 1.0F;
         int   gi1_glossy_reflections_cleanup_fireflies_half_radius      = 2;
         int   gi1_glossy_reflections_cleanup_fireflies_full_radius      = 1;
+
+        bool gi1_use_ssgi = true;
     };
 
     /**

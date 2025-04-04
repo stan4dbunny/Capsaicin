@@ -94,6 +94,7 @@ bool SSGI::init(CapsaicinInternal const &capsaicin) noexcept
 {
     initializeStaticResources(capsaicin);
     initializeKernels(capsaicin);
+
     return !!ssgi_program_;
 }
 
@@ -105,6 +106,7 @@ void SSGI::render(CapsaicinInternal &capsaicin) noexcept
     auto const stratified_sampler = capsaicin.getComponent<StratifiedSampler>();
 
     options_                     = options;
+
     auto const render_dimensions = capsaicin.getRenderDimensions();
 
     // Constants
