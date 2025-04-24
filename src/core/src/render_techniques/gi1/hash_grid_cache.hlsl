@@ -82,6 +82,10 @@ RWStructuredBuffer<float4> g_HashGridCache_BuffersFloat4[] : register(space98);
 #define                    g_HashGridCache_FreeBucketCountBuffer         g_HashGridCache_BuffersUint  [HASHGRIDCACHE_FREEBUCKETBUFFER]
 #define                    g_HashGridCache_UsedBucketCountBuffer         g_HashGridCache_BuffersUint  [HASHGRIDCACHE_USEDBUCKETBUFFER]
 #define                    g_HashGridCache_StatsBuffer                   g_HashGridCache_BuffersFloat [HASHGRIDCACHE_STATSBUFFER]
+#define                    g_HashGridCache_PackedColorBuffer             g_HashGridCache_BuffersUint  [HASHGRIDCACHE_PACKEDCOLORBUFFER]
+#define                    g_HashGridCache_PackedNormalBuffer            g_HashGridCache_BuffersUint  [HASHGRIDCACHE_PACKEDNORMALBUFFER]
+#define                    g_HashGridCache_PackedViewDirectionBuffer     g_HashGridCache_BuffersUint  [HASHGRIDCACHE_PACKEDVIEWDIRECTIONBUFFER]
+#define                    g_HashGridCache_PackedLightDirectionBuffer    g_HashGridCache_BuffersUint  [HASHGRIDCACHE_PACKEDLIGHTDIRECTIONBUFFER]
 
 //!
 //! Hash-grid radiance caching common functions.
@@ -218,9 +222,9 @@ uint HashGridCache_CellIndex(uint2 cell_offset_mip0, uint tile_index, uint mip_l
            cell_offset.x + cell_offset.y * mip_size;
 }
 
-uint HashGridCache_CellIndex(uint2 entry_offset_mip0, uint cell_index)
+uint HashGridCache_CellIndex(uint2 entry_offset_mip0, uint tile_index)
 {
-    return HashGridCache_CellIndex(entry_offset_mip0, cell_index, 0);
+    return HashGridCache_CellIndex(entry_offset_mip0, tile_index, 0);
 }
 
 // Used for loops where the tile grid doesn't matter
@@ -374,6 +378,18 @@ float3 HashGridCache_UnpackDirection(in uint packed_direction)
 {
     uint3 direction = uint3(packed_direction >> 16, packed_direction >> 8, packed_direction) & 0xFFu;
     return normalize(2.0f * direction / 255.0f - 1.0f);
+}
+
+uint HashGridCache_PackColor(float3 albedo)
+{
+    uint3 packed_albedo = uint3(round(albedo * 255.0f));
+    return (packed_albedo.x << 16) | (packed_albedo.y << 8) | packed_albedo.z;
+}
+
+float3 HashGridCache_UnpackColor(uint packed)
+{
+    uint3 albedo = uint3(packed >> 16, packed >> 8, packed) & 0xFFu;
+    return float3(float(albedo.x) / 255.0f, float(albedo.y) / 255.0f, float(albedo.z) / 255.0f);
 }
 
 float4 HashGridCache_PackVisibility(HashGridCache_Visibility visibility)

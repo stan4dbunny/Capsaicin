@@ -51,10 +51,11 @@ public:
         bool  gi1_use_resampling                                      = false;
         bool  gi1_disable_alpha_testing                               = false;
         bool  gi1_use_direct_lighting                                 = true;
-        bool  gi1_use_temporal_feedback                               = true;
-        bool  gi1_use_temporal_multibounce_feedback                   = true;
+        bool  gi1_use_temporal_feedback                               = false;
+        bool  gi1_use_temporal_multibounce_feedback                   = false;
         bool  gi1_use_bypass_cache                                    = true;
-        bool  gi1_use_bypass_cache_multibounce                        = true;
+        bool  gi1_use_bypass_cache_multibounce                        = false;
+        bool  gi1_use_depth_heuristic                                 = false;
         float gi1_bypass_distance_threshold                           = 0.460f;
         float gi1_bypass_depth_variance                               = 0.535f;
         bool  gi1_use_multibounce                                     = true;
@@ -307,6 +308,10 @@ protected:
         GfxBuffer &radiance_cache_debug_free_bucket_buffer_;
         GfxBuffer &radiance_cache_debug_used_bucket_buffer_;
         GfxBuffer &radiance_cache_debug_stats_buffer_;
+        GfxBuffer &radiance_cache_packed_color_buffer_;
+        GfxBuffer &radiance_cache_packed_normal_buffer_;
+        GfxBuffer &radiance_cache_packed_view_direction_buffer_;
+        GfxBuffer &radiance_cache_packed_light_direction_buffer_;
         GfxBuffer  radiance_cache_debug_stats_readback_buffers_[kGfxConstant_BackBufferCount];
         bool       radiance_cache_debug_stats_readback_is_pending_[kGfxConstant_BackBufferCount];
 

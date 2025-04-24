@@ -560,7 +560,7 @@ void tracePath(RayDesc ray, inout StratifiedSampler randomStratified, inout Ligh
             #ifdef DEBUG_REFLECTIONS
                 //No sky light for reflection debug
                 if (currentBounce == 0)
-                    break;
+                    return;
             #endif
             
 #   ifdef USE_CUSTOM_HIT_FUNCTIONS

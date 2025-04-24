@@ -416,9 +416,8 @@ bool CapsaicinMain::initialise() noexcept
         }
 
         contextGFX = gfxCreateContext(
-            window, kGfxCreateContextFlag_EnableShaderCache
-#if _DEBUG || defined(SHADER_DEBUG)
-                        | kGfxCreateContextFlag_EnableStablePowerState
+            window, kGfxCreateContextFlag_EnableStablePowerState
+#if _DEBUG
                         | kGfxCreateContextFlag_EnableDebugLayer | kGfxCreateContextFlag_EnableShaderDebugging
 #endif
         );

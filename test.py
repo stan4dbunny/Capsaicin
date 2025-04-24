@@ -5,11 +5,11 @@ import csv
 import locale
 if __name__ == '__main__':
 
-    ref = "dump/ref/Sponza_KiaraDawn_Main__ReferencePathTracer_19695_0.016679.png"
-    test = "dump/test/Sponza_KiaraDawn_Main_Multibounce_GI-1.1.1_7607_0.016680.png"
+    ref = "dump/breakfast_reflection_2/BreakfastRoom_KiaraDawn_User__ReferencePathTracer_1232_0.055667.png"
+    test = "dump/breakfast_reflection_2/BreakfastRoom_KiaraDawn_User_SingleBounce_GI-1.1.1_1684_0.016680Reflection.png"
     
     flipErrorMap, meanFLIPError, parameters = flip.evaluate(ref, test, "LDR")
-    plt.imsave("dump/"+"Multibounce both heuristic test"+"_"+str(round(meanFLIPError, 6))+".png", flipErrorMap)
+    plt.imsave("dump/breakfast_reflection_2/"+"Singlebounce"+"_"+str(round(meanFLIPError, 6))+".png", flipErrorMap)
     #files = glob.glob ("dump/*.jpeg")
         
     #for myFile in files:

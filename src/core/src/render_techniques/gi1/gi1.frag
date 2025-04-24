@@ -148,7 +148,6 @@ PS_OUTPUT ResolveGI1(in float4 pos : SV_Position)
     float3 directional_albedo = saturate(materialBRDF.F0 * lut.x + (1.0f - materialBRDF.F0) * lut.y);
     float3 specular = directional_albedo * (radiance_sum.xyz / max(radiance_sum.w, 1.0f));
     output.lighting = float4(emissiveRadiance + diffuse + specular, 1.0f);
-
 #endif // DISABLE_SPECULAR_MATERIALS
 
     return output;
@@ -192,11 +191,11 @@ float4 DebugScreenProbes(in float4 pos : SV_Position) : SV_Target
 
     if (g_ScreenProbes_ProbeMaskBuffer[probe_tile] == kGI1_InvalidId)
     {
-        return float4(1e4f, 0.0f, 0.0f, 1.0f);
+        return float4(0e4f, 0.0f, 0.0f, 1.0f);
     }
 
     float3 radiance = g_ScreenProbes_ProbeBuffer[probe_pos].xyz;
-
+    
     return float4(radiance * INV_PI, 1.0f);
 }
 

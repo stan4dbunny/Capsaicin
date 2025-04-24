@@ -44,6 +44,7 @@ uint   g_UseBypassCache;
 float g_ByPassDepthVariance;
 float g_ByPassDistanceThreshold;
 uint g_UseBypassCacheMultibounce;
+uint g_UseDepthHeuristic;
 StructuredBuffer<float> g_Exposure;
 
 Texture2D g_DepthBuffer;
@@ -1938,9 +1939,6 @@ void PopulateMultibounceCells(uint did)
     float3 world = interpolate(vertices.v0, vertices.v1, vertices.v2, visibility.barycentrics);
     float3 normal = (visibility.is_front_face ? 1.0f : -1.0f) * normalize(interpolate(vertices.n0, vertices.n1, vertices.n2, visibility.barycentrics));
 
-    float2 mesh_uv = interpolate(vertices.uv0, vertices.uv1, vertices.uv2, visibility.barycentrics);
-    MaterialBRDF materialBRDF = MakeMaterialBRDF(material, mesh_uv);
-
     float3 view_direction = normalize(g_Eye - world);
     
     // Transform the view direction into the surfaces tangent coordinate space (oriented so that z axis is aligned to normal)
@@ -1976,20 +1974,24 @@ void UpdateMultibounceCells(uint did)
     uint cell_index  = g_HashGridCache_MultibounceCellBuffer[did];
     uint query_index = g_HashGridCache_MultibounceQueryBuffer[did];   // BE CAREFUL: also a cell
 
-    uint visibility_index = did + g_HashGridCache_VisibilityCountBuffer0[0];
-    bool bypass_cache = ((g_HashGridCache_VisibilityCellBuffer[visibility_index] >> 31) != 0);
-    
-    if (bypass_cache)
-    {
-        return;
-    }
-    
     // BE CAREFUL: g_HashGridCache_ValueBuffer contains last frame
     float4 radiance           = HashGridCache_FilteredRadiance(cell_index, g_HashGridCacheConstants.max_multibounce_sample_count, false);
-    //radiance = HashGridCache_UnpackRadiance(g_HashGridCache_ValueBuffer[cell_index]);
-    radiance.rgb      /= 1.0 - g_HashGridCacheConstants.discard_multibounce_ray_probability;
-    uint4  quantized_radiance = HashGridCache_QuantizeRadiance(radiance.xyz / max(radiance.w, 1.f));
-
+    
+    float3 view_direction = HashGridCache_UnpackDirection(g_HashGridCache_PackedViewDirectionBuffer[query_index]);
+    float3 light_direction = -HashGridCache_UnpackDirection(g_HashGridCache_PackedLightDirectionBuffer[cell_index]);
+    float3 normal = HashGridCache_UnpackDirection(g_HashGridCache_PackedNormalBuffer[query_index]);
+    
+    //float3 reflectance = evaluateBRDFDiffuse(materialBRDF, normal, view_direction, light_direction);
+    float3 albedo = HashGridCache_UnpackColor(g_HashGridCache_PackedColorBuffer[query_index]);
+    MaterialBRDF materialBRDF;
+    materialBRDF.albedo = albedo;
+    radiance.rgb /= 1.0 - g_HashGridCacheConstants.discard_multibounce_ray_probability;
+    radiance.rgb = radiance.rgb / max(radiance.w, 1.f);
+    radiance.rgb *= evaluateBRDFDiffuse(materialBRDF, normal, view_direction, light_direction);
+    //radiance.rgb *= evaluateLambert(albedo) * saturate(dot(normal, light_direction));
+    radiance.rgb /= sampleLambertPDF(dot(normal, light_direction));
+    
+    uint4 quantized_radiance = HashGridCache_QuantizeRadiance(radiance.rgb);
     if (dot(radiance, radiance) > 0.0f)
     {
         InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * query_index + 0], quantized_radiance.x);
@@ -2034,7 +2036,7 @@ void PopulateCellsHandleMiss(uint did, inout PopulateCellsPayload payload, RayDe
     // And evaluate our lighting
     payload.lighting =
         evaluateBRDF(material, payload.normal, normalize(origin - payload.world), ray.Direction)
-        * light_radiance * light_weight;
+        * light_radiance * light_weight; // FIXME: divide by pdf?
 }
 
 void PopulateCellsTraceRayInline(uint did, inout PopulateCellsPayload payload, RayDesc ray)
@@ -2072,7 +2074,23 @@ void PopulateCells(uint did)
         return; // out of bounds
     }
 
-    uint                     visibility_index = (g_HashGridCache_VisibilityRayBuffer[did] & ~0x80000000u);
+    uint visibility_index = (g_HashGridCache_VisibilityRayBuffer[did] & ~0x80000000u);
+    
+    // Hewwo, Juwwius here! :3
+    // Ok so this if-statement can be used to disable direct light accumulation
+    // into the first (actually second) bounce hashgrid cells, so we only accumulate light
+    // into the second (actually third) bounce hashgrid cells.
+    // Doing this while disabling direct light we can isolate the contribution
+    // of the multibounce cells specifically.
+    // Hope you found my tutorial helpful, if so, smash that like button,
+    // hit subscribe and ring the bell so you don't miss any future updates!
+    // See you next time! Out!
+    // /Juwwius :3
+    if (visibility_index < g_HashGridCache_VisibilityCountBuffer0[0])
+    {
+        //return;
+    }
+    
     HashGridCache_Visibility visibility       = HashGridCache_UnpackVisibility(g_HashGridCache_VisibilityBuffer[visibility_index]);
 
     // Reconstruct world-space position and normal
@@ -2378,7 +2396,7 @@ void GenerateReservoirs(in uint did : SV_DispatchThreadID)
     float3   world    =                                                       interpolate(vertices.v0, vertices.v1, vertices.v2, visibility.barycentrics);
     float3   normal   = (visibility.is_front_face ? 1.0f : -1.0f) * normalize(interpolate(vertices.n0, vertices.n1, vertices.n2,   visibility.barycentrics));
     Material material = g_MaterialBuffer[instance.material_index];
-
+    
     // Recover the ray origin
     uint query_index = g_HashGridCache_VisibilityQueryBuffer[did];
     uint probe_index = ScreenProbes_GetCellAndProbeIndex(query_index).y;
@@ -2389,6 +2407,24 @@ void GenerateReservoirs(in uint did : SV_DispatchThreadID)
     float3 origin  = transformPointProjection(uv, depth, g_ViewProjectionInverse);
     float2 mesh_uv = interpolate(vertices.uv0, vertices.uv1, vertices.uv2, visibility.barycentrics);
 
+    MaterialEvaluated materialEvaluated = MakeMaterialEvaluated(material, mesh_uv);
+    
+#ifndef DISABLE_SPECULAR_MATERIALS
+    // Force diffuse lighting on secondary bounce to reduce noise
+    materialEvaluated.metallicity = 0.0f;
+    materialEvaluated.roughness = 1.0f;
+#endif // DISABLE_SPECULAR_MATERIALS
+    
+    MaterialBRDF materialBRDF = MakeMaterialBRDF(materialEvaluated);
+    uint cell_index = g_HashGridCache_VisibilityCellBuffer[did];
+    
+    float3 view_direction = normalize(origin - world);
+    
+    uint packed_color = HashGridCache_PackColor(materialBRDF.albedo);
+    float3 unpacked = HashGridCache_UnpackColor(packed_color);
+    g_HashGridCache_PackedColorBuffer[cell_index] = packed_color;
+    g_HashGridCache_PackedNormalBuffer[cell_index] = HashGridCache_PackDirection(normal);
+    g_HashGridCache_PackedViewDirectionBuffer[cell_index] = HashGridCache_PackDirection(view_direction);
     // Patch the screen probes with some emissivity information:
     // We bypass the hash-grid cache entirely here, as adding emissive information to the cells
     // effectively enlarges the area light (due to the spatial nature of the grid) and leads to
@@ -2450,17 +2486,10 @@ void GenerateReservoirs(in uint did : SV_DispatchThreadID)
         }
     }
 
-    float3 view_direction = normalize(origin - world);
-
     // Sample new lights
     const float solid_angle = FOUR_PI / (kReservoir_SampleCount * 1.5f);
-    MaterialEvaluated material2 = MakeMaterialEvaluated(material, mesh_uv);
-#ifndef DISABLE_SPECULAR_MATERIALS
-    // Force diffuse lighting on secondary bounce to reduce noise
-    material2.metallicity = 0.0f;
-    material2.roughness = 1.0f;
-#endif // DISABLE_SPECULAR_MATERIALS
-    MaterialBRDF materialBRDF = MakeMaterialBRDF(material2);
+    
+
     Random random = MakeRandom(did, g_FrameIndex);
     LightSampler lightSampler = MakeLightSampler(random);
     Reservoir reservoir = lightSampler.sampleLightListCone<kReservoir_SampleCount>(world, normal, view_direction, solid_angle, materialBRDF);
@@ -2503,8 +2532,7 @@ void GenerateReservoirs(in uint did : SV_DispatchThreadID)
 
     uv = 0.5f * float2(homogeneous.x, -homogeneous.y) + 0.5f;
     depth = homogeneous.z;
-    
-    uint cell_index = g_HashGridCache_VisibilityCellBuffer[did];
+
     float sum = depth;
     for (int i = 1; i < 3; i++)
     {
@@ -2528,7 +2556,7 @@ void GenerateReservoirs(in uint did : SV_DispatchThreadID)
     
     bool high_variance = (mean - depth) > (mean * g_ByPassDepthVariance);
     bool distance = cell_size > g_ByPassDistanceThreshold;
-    bool bypass_cache = ((high_variance && distance) || (ray_length < cell_size)) && g_UseBypassCache;
+    bool bypass_cache = ((high_variance && distance && g_UseDepthHeuristic) || (ray_length < cell_size)) && g_UseBypassCache;
     if (bypass_cache)
     {
         g_HashGridCache_ResolveBuffer[resolve_index] |= 0x80000000u;
@@ -2562,7 +2590,7 @@ void GenerateReservoirs(in uint did : SV_DispatchThreadID)
 
     // Write the results out to memory
     g_Reservoir_IndirectSampleBuffer[ray_index]          = Reservoir_PackIndirectSample(origin, world);
-    g_Reservoir_IndirectSampleMaterialBuffer[ray_index]  = packMaterial(material2);  // cannot afford to re-fetch the full material each time, so we need to approximate it...
+    g_Reservoir_IndirectSampleMaterialBuffer[ray_index]  = packMaterial(materialEvaluated);  // cannot afford to re-fetch the full material each time, so we need to approximate it...
     g_Reservoir_IndirectSampleReservoirBuffer[ray_index] = packReservoir(reservoir);
 }
 
@@ -2610,6 +2638,11 @@ void GenerateMultibounceReservoirs(in uint did : SV_DispatchThreadID)
 
     float3 origin = interpolate(query_vertices.v0, query_vertices.v1, query_vertices.v2, query_visibility.barycentrics);
 
+    float3 view_direction = normalize(origin - world);
+
+    uint cell_index = g_HashGridCache_VisibilityCellBuffer[did];
+    g_HashGridCache_PackedLightDirectionBuffer[cell_index] = HashGridCache_PackDirection(view_direction);
+    
     // We can perform some temporal radiance feedback from last frame if direct lighting was
     // evaluated.
     // If successful, we inject the reprojected radiance into the cache so it can be re-used
@@ -2636,7 +2669,6 @@ void GenerateMultibounceReservoirs(in uint did : SV_DispatchThreadID)
                 {
                     float3 previous_lighting = g_PrevCombinedIlluminationBuffer.SampleLevel(g_NearestSampler, previous_uv, 0.0f).xyz;
 
-                    uint  cell_index         = g_HashGridCache_VisibilityCellBuffer[did];
                     uint4 quantized_radiance = HashGridCache_QuantizeRadiance(previous_lighting);
 
                     ScreenProbes_AccumulateRadiance(query_index, previous_lighting);
@@ -2655,8 +2687,7 @@ void GenerateMultibounceReservoirs(in uint did : SV_DispatchThreadID)
         }
     }
 
-    float3 view_direction = normalize(origin - world);
-
+    
     // Sample new lights
     const float solid_angle = FOUR_PI / (kReservoir_SampleCount * 1.5f);
     MaterialEvaluated material2 = MakeMaterialEvaluated(material, mesh_uv);
@@ -2873,7 +2904,7 @@ void TraceReflectionsHandleHit(uint did, inout TraceReflectionsPayload payload, 
                     float3 previous_lighting = g_PrevCombinedIlluminationBuffer.SampleLevel(g_NearestSampler, previous_uv, 0.0f).xyz;
                     payload.hit_distance     = hit_distance;
                     payload.radiance         = previous_lighting;
-                    previous_frame_available = true;
+                    previous_frame_available = false;
                 }
             }
         }
