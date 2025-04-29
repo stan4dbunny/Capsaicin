@@ -459,8 +459,7 @@ bool pathHit(inout RayDesc ray, HitInfo hitData, IntersectData iData, inout Stra
     // If the first hit is too rough, then we won't get a reflection, so we terminate the ray
     if (currentBounce == 0)
     {
-        float2 mesh_uv = interpolate(iData.uv0, iData.uv1, iData.uv2, iData.barycentrics);
-        MaterialEvaluated materialEvaluated = MakeMaterialEvaluated(iData.material, mesh_uv);
+        MaterialEvaluated materialEvaluated = MakeMaterialEvaluated(iData.material, iData.uv);
         if (materialEvaluated.roughness > 0.6f)
             return false;
     }
@@ -558,8 +557,8 @@ void tracePath(RayDesc ray, inout StratifiedSampler randomStratified, inout Ligh
         {
             #ifdef DEBUG_REFLECTIONS
                 //No sky light for reflection debug
-                if (currentBounce == 0)
-                    break;
+                if (bounce == 0)
+                    return;
             #endif
             
 #   ifdef USE_CUSTOM_HIT_FUNCTIONS
