@@ -1690,17 +1690,28 @@ filesystem::path CapsaicinMain::getSaveName()
     {
         savePath += "test/"s;
     }
-        
+    savePath += renderer;
+    
+    savePath += '_';
 
+    if (Capsaicin::getOption<bool>("gi1_use_multibounce"))
+    {
+        savePath += "Multibounce";
+    }
+    else if (renderer.ends_with("1") && !Capsaicin::getOption<bool>("gi1_use_multibounce"))
+    {
+        savePath += "SingleBounce";
+    }
+    savePath += '_';
     savePath += currentSceneName;
     savePath += '_';
-    savePath += currentEM;
+    //savePath += currentEM;
     savePath += '_';
     savePath += Capsaicin::GetSceneCurrentCamera();
     savePath += '_';
     savePath += view;
     savePath += '_';
-    savePath += renderer;
+    
     auto filename = savePath.filename().string();
     erase_if(filename, [](unsigned char const c) { return isspace(c); });
     savePath.replace_filename(filename);
