@@ -289,6 +289,7 @@ protected:
         GfxBuffer &radiance_cache_visibility_count_buffer1_;
         GfxBuffer &radiance_cache_visibility_cell_buffer_;
         GfxBuffer &radiance_cache_visibility_query_buffer_;
+        GfxBuffer &radiance_cache_visibility_query_pdf_buffer_;
         GfxBuffer &radiance_cache_visibility_ray_buffer_;
         GfxBuffer &radiance_cache_visibility_ray_count_buffer_;
         GfxBuffer &radiance_cache_multibounce_count_buffer_;

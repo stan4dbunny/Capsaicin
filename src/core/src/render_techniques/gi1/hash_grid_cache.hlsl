@@ -63,6 +63,7 @@ RWStructuredBuffer<float4> g_HashGridCache_BuffersFloat4[] : register(space98);
 #define                    g_HashGridCache_VisibilityCountBuffer1        g_HashGridCache_BuffersUint  [HASHGRIDCACHE_VISIBILITYCOUNTBUFFER1]
 #define                    g_HashGridCache_VisibilityCellBuffer          g_HashGridCache_BuffersUint  [HASHGRIDCACHE_VISIBILITYCELLBUFFER]
 #define                    g_HashGridCache_VisibilityQueryBuffer         g_HashGridCache_BuffersUint  [HASHGRIDCACHE_VISIBILITYQUERYBUFFER]
+#define                    g_HashGridCache_VisibilityQueryPDFBuffer      g_HashGridCache_BuffersFloat [HASHGRIDCACHE_VISIBILITYQUERYPDFBUFFER]
 #define                    g_HashGridCache_VisibilityRayBuffer           g_HashGridCache_BuffersUint  [HASHGRIDCACHE_VISIBILITYRAYBUFFER]
 #define                    g_HashGridCache_VisibilityRayCountBuffer      g_HashGridCache_BuffersUint  [HASHGRIDCACHE_VISIBILITYRAYCOUNTBUFFER]
 #define                    g_HashGridCache_MultibounceCountBuffer        g_HashGridCache_BuffersUint  [HASHGRIDCACHE_MULTIBOUNCECOUNTBUFFER]

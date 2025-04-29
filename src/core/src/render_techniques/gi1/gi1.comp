@@ -923,6 +923,7 @@ void SampleScreenProbes(in uint did : SV_DispatchThreadID, in uint local_id : SV
         return; // out of bounds
     }
 
+    float pdf;
     {
         // get material
         float4 visibility = g_VisibilityBuffer.Load(int3(seed, 0));
@@ -962,24 +963,38 @@ void SampleScreenProbes(in uint did : SV_DispatchThreadID, in uint local_id : SV
             // sample direction by BRDF importance sampling
             float3 newLight = sampleGGX(materialBRDF.roughnessAlpha, localView, samples);
             direction = normalize(localRotation.inverse().transform(newLight));
+            
+            float3 halfVector = normalize(localView + newLight);
+            float dotNH = clamp(halfVector.z, -1.0f, 1.0f);
+            float dotNV = clamp(localView.z, -1.0f, 1.0f);
+            
+            pdf = sampleGGXPDF(materialBRDF.roughnessAlphaSqr, dotNH, dotNV, localView);
+            
+            //pdf = 1;
         }
         // diffuse layer case
         else
 #endif
         {
             // sample direction by ray guiding
-            uint sampled_cell_index = ScreenProbes_FindCellIndex(local_id, randomNG.rand());
+            uint sampled_cell_index = ScreenProbes_FindCellIndex(local_id, randomNG.rand(), pdf);
             uint2 sampled_cell = (total_weight > 0.0f ? uint2(sampled_cell_index % g_ScreenProbesConstants.probe_size, sampled_cell_index / g_ScreenProbesConstants.probe_size) : cell);
-            direction = mapToHemiOctahedron((sampled_cell + randomNG.rand2()) / g_ScreenProbesConstants.probe_size);
-
-            float3 b1, b2;
-            GetOrthoVectors(normal, b1, b2);
-            direction = direction.x * b1 + direction.y * b2 + direction.z * normal;
+            //direction = mapToHemiOctahedron((sampled_cell + randomNG.rand2()) / g_ScreenProbesConstants.probe_size);
+            
+            direction = sampleLambert(0.0f, samples);
+            pdf = direction.z * INV_PI; // sampling.hlsl
+            //pdf = INV_PI;
+            direction = normalize(localRotation.inverse().transform(direction)); // Equivalent to get ortho stuff ?
+            //pdf = sampleLambertPDF(dot(normal, direction)); // sort of equivalent with direction.z / pi
+            
+            //float3 b1, b2;
+            //GetOrthoVectors(normal, b1, b2);
+            //direction = direction.x * b1 + direction.y * b2 + direction.z * normal;
         }
     }
 
     g_ScreenProbes_PreviousProbeBuffer[pos]    = previous_radiance;
-    g_ScreenProbes_ProbeSpawnSampleBuffer[did] = ScreenProbes_PackSample(direction);
+    g_ScreenProbes_ProbeSpawnSampleBuffer[did] = ScreenProbes_PackSample(direction, pdf);
 }
 
 void PopulateScreenProbesHandleHit(uint did, inout PopulateScreenProbesPayload payload, RayDesc ray, HitInfo hit_info)
@@ -1136,7 +1151,8 @@ void PopulateScreenProbes(uint did)
         return; // discard sky pixels
     }
 
-    float3 direction = ScreenProbes_UnpackSample(g_ScreenProbes_ProbeSpawnSampleBuffer[did]);
+    float unused_pdf;
+    float3 direction = ScreenProbes_UnpackSample(g_ScreenProbes_ProbeSpawnSampleBuffer[did], unused_pdf);
     normal           = normalize(2.0f * normal - 1.0f);
 
     float4 visibility   = g_VisibilityBuffer.Load(int3(seed, 0));
@@ -1206,10 +1222,10 @@ void BlendScreenProbes(in uint did : SV_DispatchThreadID, in uint local_id : SV_
     if (probe_index < probe_count)
     {
         float3 normal    = normalize(2.0f * g_GeometryNormalBuffer.Load(int3(seed, 0)).xyz - 1.0f);
-        float3 direction = ScreenProbes_UnpackSample(g_ScreenProbes_ProbeSpawnSampleBuffer[did]);
+        float sample_pdf;
+        float3 direction = ScreenProbes_UnpackSample(g_ScreenProbes_ProbeSpawnSampleBuffer[did], sample_pdf);
         float4 radiance  = ScreenProbes_UnpackRadiance(g_ScreenProbes_ProbeSpawnRadianceBuffer[did]);
-
-        uint4 quantized_radiance = ScreenProbes_QuantizeRadiance(radiance);
+        uint4 quantized_radiance = ScreenProbes_QuantizeRadiance(radiance / max(sample_pdf, 1e-3f));
         uint2 sampled_cell       = uint2(mapToHemiOctahedronInverse(mul(direction, CreateTBN(normal))) * g_ScreenProbesConstants.probe_size);
         uint  sampled_cell_index = sampled_cell.x + sampled_cell.y * g_ScreenProbesConstants.probe_size;
 
@@ -1685,6 +1701,12 @@ void InterpolateScreenProbes(in uint2 did : SV_DispatchThreadID)
         float3 newLight = sampleGGX(roughnessAlpha, localView, s);
         float3 direction = normalize(localRotation.inverse().transform(newLight));
 
+        float3 halfVector = normalize(localView + newLight);
+        float dotNH = clamp(halfVector.z, -1.0f, 1.0f);
+        float dotNV = clamp(localView.z, -1.0f, 1.0f);
+            
+        float pdf = sampleGGXPDF(sqrt(roughnessAlpha), dotNH, dotNV, localView);
+        
         for (uint k = 0; k < 4; ++k)
         {
             uint2  probe_seed      = ScreenProbes_UnpackSeed(probes[k]);
@@ -1707,12 +1729,12 @@ void InterpolateScreenProbes(in uint2 did : SV_DispatchThreadID)
         if (g_GlossyReflectionsConstants.half_res && GlossyReflections_QueueSample(did))
         {
             g_GlossyReflections_SpecularBuffer[did >> 1]  = float4(radiance, denoiser_hint);
-            g_GlossyReflections_DirectionBuffer[did >> 1] = float4(direction, 0.f);             // BE CAREFUL: no parallax correction
+            g_GlossyReflections_DirectionBuffer[did >> 1] = float4(direction, pdf);             // BE CAREFUL: no parallax correction
         }
         else
         {
             g_GlossyReflections_SpecularBuffer[did]  = float4(radiance, denoiser_hint);
-            g_GlossyReflections_DirectionBuffer[did] = float4(direction, 0.f);                  // BE CAREFUL: no parallax correction
+            g_GlossyReflections_DirectionBuffer[did] = float4(direction, pdf);                  // BE CAREFUL: no parallax correction
         } 
     }
 #endif // DISABLE_SPECULAR_MATERIALS
@@ -1987,8 +2009,8 @@ void UpdateMultibounceCells(uint did)
     materialBRDF.albedo = albedo;
     radiance.rgb /= 1.0 - g_HashGridCacheConstants.discard_multibounce_ray_probability;
     radiance.rgb = radiance.rgb / max(radiance.w, 1.f);
-    radiance.rgb *= evaluateBRDFDiffuse(materialBRDF, normal, view_direction, light_direction);
-    //radiance.rgb *= evaluateLambert(albedo) * saturate(dot(normal, light_direction));
+    //radiance.rgb *= evaluateBRDFDiffuse(materialBRDF, normal, view_direction, light_direction);
+    radiance.rgb *= evaluateLambert(albedo) * saturate(dot(normal, light_direction));
     radiance.rgb /= sampleLambertPDF(dot(normal, light_direction));
     
     uint4 quantized_radiance = HashGridCache_QuantizeRadiance(radiance.rgb);
@@ -2036,7 +2058,12 @@ void PopulateCellsHandleMiss(uint did, inout PopulateCellsPayload payload, RayDe
     // And evaluate our lighting
     payload.lighting =
         evaluateBRDF(material, payload.normal, normalize(origin - payload.world), ray.Direction)
-        * light_radiance * light_weight; // FIXME: divide by pdf?
+        * light_radiance * light_weight; // light_weight contains 1/pdf, dotnl included in brdf
+    
+    // Diffuse 
+    float dotNL = saturate(dot(payload.normal, ray.Direction));
+    payload.lighting = evaluateLambert(material.albedo) * light_weight * light_radiance * dotNL;
+
 }
 
 void PopulateCellsTraceRayInline(uint did, inout PopulateCellsPayload payload, RayDesc ray)
@@ -2076,16 +2103,7 @@ void PopulateCells(uint did)
 
     uint visibility_index = (g_HashGridCache_VisibilityRayBuffer[did] & ~0x80000000u);
     
-    // Hewwo, Juwwius here! :3
-    // Ok so this if-statement can be used to disable direct light accumulation
-    // into the first (actually second) bounce hashgrid cells, so we only accumulate light
-    // into the second (actually third) bounce hashgrid cells.
-    // Doing this while disabling direct light we can isolate the contribution
-    // of the multibounce cells specifically.
-    // Hope you found my tutorial helpful, if so, smash that like button,
-    // hit subscribe and ring the bell so you don't miss any future updates!
-    // See you next time! Out!
-    // /Juwwius :3
+   
     if (visibility_index < g_HashGridCache_VisibilityCountBuffer0[0])
     {
         //return;
@@ -3063,7 +3081,7 @@ void TraceReflections(in uint did)
     int2 half_pos = GlossyReflections_FullToHalfRes(full_pos);
     g_GlossyReflections_SpecularBuffer[half_pos]  = float4(payload.radiance, payload.hit_distance);
     g_GlossyReflections_DirectionBuffer[half_pos] = payload.hit_distance > 0.f && payload.hit_distance < 100.f
-                                                    ? float4(world + payload.hit_distance * direction - g_Eye, 1.f)
+                                                    ? float4(world + payload.hit_distance * direction - g_Eye, specular_pdf)
                                                     : float4(direction, 0.f);
 }
 

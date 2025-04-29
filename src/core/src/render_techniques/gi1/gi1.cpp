@@ -388,6 +388,8 @@ GI1::HashGridCache::HashGridCache(GI1 &gi1)
           radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_VISIBILITYCELLBUFFER])
     , radiance_cache_visibility_query_buffer_(
           radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_VISIBILITYQUERYBUFFER])
+    , radiance_cache_visibility_query_pdf_buffer_(
+          radiance_cache_hash_buffer_float_[HASHGRIDCACHE_VISIBILITYQUERYPDFBUFFER])
     , radiance_cache_visibility_ray_buffer_(
           radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_VISIBILITYRAYBUFFER])
     , radiance_cache_visibility_ray_count_buffer_(
@@ -655,6 +657,7 @@ void GI1::HashGridCache::ensureMemoryIsAllocated([[maybe_unused]] CapsaicinInter
         gfxDestroyBuffer(gfx_, radiance_cache_visibility_buffer_);
         gfxDestroyBuffer(gfx_, radiance_cache_visibility_cell_buffer_);
         gfxDestroyBuffer(gfx_, radiance_cache_visibility_query_buffer_);
+        gfxDestroyBuffer(gfx_, radiance_cache_visibility_query_pdf_buffer_);
         gfxDestroyBuffer(gfx_, radiance_cache_visibility_ray_buffer_);
 
         radiance_cache_update_tile_buffer_ =
@@ -671,6 +674,9 @@ void GI1::HashGridCache::ensureMemoryIsAllocated([[maybe_unused]] CapsaicinInter
         radiance_cache_visibility_query_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, 2 * max_ray_count);
         radiance_cache_visibility_query_buffer_.setName("Capsaicin_RadianceCache_VisibilityQueryBuffer");
 
+        radiance_cache_visibility_query_pdf_buffer_ = gfxCreateBuffer<float>(gfx_, 2 * max_ray_count);
+        radiance_cache_visibility_query_pdf_buffer_.setName("Capsaicin_RadianceCache_VisibilityQueryPDFBuffer");
+
         radiance_cache_visibility_ray_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, 2 * max_ray_count);
         radiance_cache_visibility_ray_buffer_.setName("Capsaicin_RadianceCache_VisibilityRayBuffer");
     }
@@ -679,6 +685,7 @@ void GI1::HashGridCache::ensureMemoryIsAllocated([[maybe_unused]] CapsaicinInter
     debug_total_memory_size_in_bytes += radiance_cache_visibility_buffer_.getSize();
     debug_total_memory_size_in_bytes += radiance_cache_visibility_cell_buffer_.getSize();
     debug_total_memory_size_in_bytes += radiance_cache_visibility_query_buffer_.getSize();
+    debug_total_memory_size_in_bytes += radiance_cache_visibility_query_pdf_buffer_.getSize();
     debug_total_memory_size_in_bytes += radiance_cache_visibility_ray_buffer_.getSize();
 
     if (!radiance_cache_multibounce_count_buffer_)

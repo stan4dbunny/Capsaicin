@@ -76,6 +76,7 @@ RWStructuredBuffer<uint>  g_ScreenProbes_ProbeCachedTileListElementCountBuffer;
 RWStructuredBuffer<uint>  g_ScreenProbes_PreviousProbeCachedTileLRUBuffer;
 
 groupshared float  lds_ScreenProbes_Radiance[64];
+groupshared float  lds_ScreenProbes_RadiancePDF[64];
 groupshared uint   lds_ScreenProbes_Reprojection[4];
 groupshared float4 lds_ScreenProbes_ProbeSHBuffer[9 * 64];
 groupshared uint   lds_ScreenProbes_RadianceValues[4 * 64];
@@ -265,23 +266,26 @@ uint2 ScreenProbes_GetCellAndProbeIndex(in uint query_index)
 }
 
 // Packs the screen probe sample.
-uint2 ScreenProbes_PackSample(in float3 direction)
+uint2 ScreenProbes_PackSample(in float3 direction, in float sample_pdf)
 {
     uint3 packed_sample = f32tof16(direction);
+    uint packed_pdf = f32tof16(sample_pdf);
 
-    return uint2((packed_sample.x << 16) | packed_sample.y, packed_sample.z << 16);
+    return uint2((packed_sample.x << 16) | packed_sample.y, packed_sample.z << 16 | packed_pdf);
 }
 
 // Unpacks the screen probe sample.
-float3 ScreenProbes_UnpackSample(in uint2 packed_sample)
+float3 ScreenProbes_UnpackSample(in uint2 packed_sample, out float sample_pdf)
 {
     uint3 unpacked_sample = uint3(packed_sample.x >> 16, packed_sample.x & 0xFFFFu, packed_sample.y >> 16);
+    uint unpacked_pdf = packed_sample.y & 0xFFFFu;
 
+    sample_pdf = f16tof32(unpacked_pdf);
     return f16tof32(unpacked_sample);
 }
 
 // Finds the index corresponding to the sampled cell.
-uint ScreenProbes_FindCellIndex(in uint local_id, in float s)
+uint ScreenProbes_FindCellIndex(in uint local_id, in float s, out float pdf)
 {
     uint index = 0;
     uint count = (g_ScreenProbesConstants.probe_size * g_ScreenProbesConstants.probe_size);
@@ -301,6 +305,10 @@ uint ScreenProbes_FindCellIndex(in uint local_id, in float s)
         }
     }
 
+    //if (index == 0) pdf = lds_ScreenProbes_Radiance[start];
+    //else            pdf = lds_ScreenProbes_Radiance[index + start] - lds_ScreenProbes_Radiance[index + start - 1];
+    
+    pdf = lds_ScreenProbes_RadiancePDF[index + start];
     return max(index, 1) - 1;
 }
 
@@ -309,6 +317,7 @@ void ScreenProbes_ScanRadiance(in uint local_id, in float radiance)
 {
     uint stride;
 
+    lds_ScreenProbes_RadiancePDF[local_id] = radiance;
     lds_ScreenProbes_Radiance[local_id] = radiance;
     GroupMemoryBarrierWithGroupSync();
 
@@ -349,6 +358,7 @@ void ScreenProbes_ScanRadiance(in uint local_id, in float radiance)
     radiance += lds_ScreenProbes_Radiance[first_lane + block_size - 1];
     GroupMemoryBarrierWithGroupSync();
 
+    lds_ScreenProbes_RadiancePDF[local_id] /= max(radiance, 1e-5f);
     lds_ScreenProbes_Radiance[local_id] /= max(radiance, 1e-5f);
     GroupMemoryBarrierWithGroupSync();
 }
