@@ -40,6 +40,7 @@ uint2  g_BufferDimensions;
 uint   g_UseDirectLighting;
 uint   g_UseTemporalFeedback;
 uint   g_UseTemporalMultibounceFeedback;
+uint   g_UseScreenSpaceReflections;
 uint   g_UseBypassCache;
 StructuredBuffer<float> g_Exposure;
 
@@ -2781,23 +2782,27 @@ void TraceReflectionsHandleHit(uint did, inout TraceReflectionsPayload payload, 
     {
         // Use previous frame lighting when available
         bool previous_frame_available = false;
-        if (all(uv > 0.0f) && all(uv < 1.0f) && depth > 0.0f)
+        
+        if (g_UseScreenSpaceReflections)
         {
-            float2 previous_uv = uv - g_VelocityBuffer.SampleLevel(g_NearestSampler, uv, 0.0f).xy;
-            if (all(previous_uv > 0.0f) && all(previous_uv < 1.0f))
+            if (all(uv > 0.0f) && all(uv < 1.0f) && depth > 0.0f)
             {
-                float  previous_depth  = toLinearDepth(g_PreviousDepthBuffer.SampleLevel(g_NearestSampler, previous_uv, 0.0f).x, g_NearFar);
-                float3 previous_normal = normalize(2.0f * g_PreviousNormalBuffer.SampleLevel(g_NearestSampler, previous_uv, 0.0f).xyz - 1.0f);
-
-                float3 homogeneous2 = transformPointProjection(uv, depth, g_Reprojection);
-                homogeneous2.z      = toLinearDepth(homogeneous2.z, g_NearFar);
-
-                if (abs(homogeneous2.z - previous_depth) / homogeneous2.z < 1e-2f && dot(hit_normal, previous_normal) > 0.95f)
+                float2 previous_uv = uv - g_VelocityBuffer.SampleLevel(g_NearestSampler, uv, 0.0f).xy;
+                if (all(previous_uv > 0.0f) && all(previous_uv < 1.0f))
                 {
-                    float3 previous_lighting = g_PrevCombinedIlluminationBuffer.SampleLevel(g_NearestSampler, previous_uv, 0.0f).xyz;
-                    payload.hit_distance     = hit_distance;
-                    payload.radiance         = previous_lighting;
-                    previous_frame_available = true;
+                    float previous_depth = toLinearDepth(g_PreviousDepthBuffer.SampleLevel(g_NearestSampler, previous_uv, 0.0f).x, g_NearFar);
+                    float3 previous_normal = normalize(2.0f * g_PreviousNormalBuffer.SampleLevel(g_NearestSampler, previous_uv, 0.0f).xyz - 1.0f);
+
+                    float3 homogeneous2 = transformPointProjection(uv, depth, g_Reprojection);
+                    homogeneous2.z = toLinearDepth(homogeneous2.z, g_NearFar);
+
+                    if (abs(homogeneous2.z - previous_depth) / homogeneous2.z < 1e-2f && dot(hit_normal, previous_normal) > 0.95f)
+                    {
+                        float3 previous_lighting = g_PrevCombinedIlluminationBuffer.SampleLevel(g_NearestSampler, previous_uv, 0.0f).xyz;
+                        payload.hit_distance = hit_distance;
+                        payload.radiance = previous_lighting;
+                        previous_frame_available = true;
+                    }
                 }
             }
         }

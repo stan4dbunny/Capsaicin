@@ -1701,7 +1701,6 @@ filesystem::path CapsaicinMain::getSaveName()
     savePath += view;
     savePath += '_';
     savePath += renderer;
-    savePath += Capsaicin::GetCurrentRenderer();
     auto filename = savePath.filename().string();
     erase_if(filename, [](unsigned char const c) { return isspace(c); });
     savePath.replace_filename(filename);
