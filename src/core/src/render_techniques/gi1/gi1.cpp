@@ -398,6 +398,8 @@ GI1::HashGridCache::HashGridCache(GI1 &gi1)
           radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_MULTIBOUNCECELLBUFFER])
     , radiance_cache_multibounce_query_buffer_(
           radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_MULTIBOUNCEQUERYBUFFER])
+    , radiance_cache_multibounce_info_buffer_(
+          radiance_cache_hash_buffer_float4_[HASHGRIDCACHE_MULTIBOUNCEINFOBUFFER])
     , radiance_cache_resolve_count_buffer_(radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_RESOLVECOUNTBUFFER])
     , radiance_cache_resolve_buffer_(radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_RESOLVEBUFFER])
     , radiance_cache_packed_tile_count_buffer0_(
@@ -507,9 +509,12 @@ void GI1::HashGridCache::ensureMemoryIsAllocated([[maybe_unused]] CapsaicinInter
 
         radiance_cache_value_buffer_ = gfxCreateBuffer<uint2>(gfx_, num_cells);
         radiance_cache_value_buffer_.setName("Capsaicin_RadianceCache_ValueBuffer");
+        radiance_cache_multibounce_info_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, num_cells);
+        radiance_cache_multibounce_info_buffer_.setName("Capsaicin_RadianceCache_MultibounceInfoBuffer");
     }
 
     debug_total_memory_size_in_bytes += radiance_cache_value_buffer_.getSize();
+    debug_total_memory_size_in_bytes += radiance_cache_multibounce_info_buffer_.getSize();
 
     if (!radiance_cache_update_tile_count_buffer_)
     {
@@ -657,7 +662,7 @@ void GI1::HashGridCache::ensureMemoryIsAllocated([[maybe_unused]] CapsaicinInter
         radiance_cache_multibounce_cell_buffer_.setName("Capsaicin_RadianceCache_MultibounceCellBuffer");
         radiance_cache_multibounce_query_buffer_ =
             gfxCreateBuffer<uint32_t>(gfx_, max_ray_count); // BE CAREFUL: we only resolve bounce 0
-        radiance_cache_multibounce_query_buffer_.setName("Capsaicin_RadianceCache_MultibounceQueryBuffer");
+        radiance_cache_multibounce_query_buffer_.setName("Capsaicin_RadianceCache_MultibounceQueryBuffer"); 
     }
 
     debug_total_memory_size_in_bytes += radiance_cache_multibounce_cell_buffer_.getSize();
@@ -2402,17 +2407,7 @@ void GI1::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandDispatchIndirect(gfx_, dispatch_command_buffer_);
     }
 
-    // Filter tiles (include first and second bounces cells)
-    {
-        TimedSection const timed_section(*this, "UpdateTiles");
-
-        gfxCommandBindKernel(gfx_, generate_update_tiles_dispatch_kernel_);
-        gfxCommandDispatch(gfx_, 1, 1, 1);
-
-        gfxCommandBindKernel(gfx_, update_tiles_kernel_);
-        gfxCommandDispatchIndirect(gfx_, dispatch_command_buffer_);
-    }
-
+    
     // Resolve bounce 1 cells into first bounce cells using last frame
     if (options.gi1_use_multibounce)
     {
@@ -2424,6 +2419,18 @@ void GI1::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandBindKernel(gfx_, update_multibounce_cells_kernel_);
         gfxCommandDispatchIndirect(gfx_, dispatch_command_buffer_);
     }
+
+    // Filter tiles (include first and second bounces cells)
+    {
+        TimedSection const timed_section(*this, "UpdateTiles");
+
+        gfxCommandBindKernel(gfx_, generate_update_tiles_dispatch_kernel_);
+        gfxCommandDispatch(gfx_, 1, 1, 1);
+
+        gfxCommandBindKernel(gfx_, update_tiles_kernel_);
+        gfxCommandDispatchIndirect(gfx_, dispatch_command_buffer_);
+    }
+
 
     // Resolve first bounce cells into screen probes
     {

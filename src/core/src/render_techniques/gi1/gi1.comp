@@ -1764,7 +1764,7 @@ void PurgeTiles(in uint did : SV_DispatchThreadID)
     g_HashGridCache_PackedTileIndexBuffer[packed_tile_index] = tile_index;
 }
 
-void PopulateMultibounceCellsHandleHit(uint did, inout PopulateMultibounceCellsPayload payload, RayDesc ray, HitInfo hit_info)
+void PopulateMultibounceCellsHandleHit(uint did, inout PopulateMultibounceCellsPayload payload, RayDesc ray, HitInfo hit_info, float3 albedo, float pdf)
 {
     HashGridCache_Data data;
     data.eye_position = g_Eye;
@@ -1784,6 +1784,7 @@ void PopulateMultibounceCellsHandleHit(uint did, inout PopulateMultibounceCellsP
         InterlockedAdd(g_HashGridCache_MultibounceCountBuffer[0], 1, multibounce_index);
         g_HashGridCache_MultibounceCellBuffer[multibounce_index]  = cell_index;
         g_HashGridCache_MultibounceQueryBuffer[multibounce_index] = g_HashGridCache_VisibilityCellBuffer[did];  // BE CAREFUL: also a cell
+        //g_HashGridCache_MultibounceInfoBuffer[multibounce_index] = float4(albedo, pdf);
 
 
         // Bump the cell's decay to the max. now that it's been 'touched'
@@ -1867,7 +1868,7 @@ void PopulateMultibounceCellsHandleMiss(inout PopulateMultibounceCellsPayload pa
 
 }
 
-void PopulateMultibounceCellsTraceRayInline(uint did, inout PopulateMultibounceCellsPayload payload, RayDesc ray)
+void PopulateMultibounceCellsTraceRayInline(uint did, inout PopulateMultibounceCellsPayload payload, RayDesc ray, float3 albedo, float pdf)
 {
     ClosestRayQuery ray_query = TraceRay<ClosestRayQuery>(ray);
 
@@ -1880,7 +1881,7 @@ void PopulateMultibounceCellsTraceRayInline(uint did, inout PopulateMultibounceC
     else
     {
         payload.hit_dist = ray_query.CommittedRayT();
-        PopulateMultibounceCellsHandleHit(did, payload, ray, GetHitInfoRtInlineCommitted(ray_query));
+        PopulateMultibounceCellsHandleHit(did, payload, ray, GetHitInfoRtInlineCommitted(ray_query), albedo, pdf);
     }
 }
 
@@ -1889,10 +1890,10 @@ void PopulateMultibounceCellsTraceRayRt(uint did, inout PopulateMultibounceCells
     TraceRay(g_Scene, RAY_FLAG_NONE, 0xFFu, 0, 0, 0, ray, payload);
 }
 
-void PopulateMultibounceCellsTraceRay(uint did, inout PopulateMultibounceCellsPayload payload, RayDesc ray)
+void PopulateMultibounceCellsTraceRay(uint did, inout PopulateMultibounceCellsPayload payload, RayDesc ray, float3 albedo, float pdf)
 {
 #if USE_INLINE_RT
-    return PopulateMultibounceCellsTraceRayInline(did, payload, ray);
+    return PopulateMultibounceCellsTraceRayInline(did, payload, ray, albedo, pdf);
 #else
     return PopulateMultibounceCellsTraceRayRt(did, payload, ray);
 #endif
@@ -1917,12 +1918,12 @@ void PopulateMultibounceCells(uint did)
     // Load our visibility sample
     float4                   packed_visibility = g_HashGridCache_VisibilityBuffer[did];
     HashGridCache_Visibility visibility        = HashGridCache_UnpackVisibility(packed_visibility);
-
+    
     // Reconstruct world-space position and normal
     Instance instance = g_InstanceBuffer[visibility.instance_index];
     float3x4 transform = g_TransformBuffer[instance.transform_index];
 
-    TriangleNorm vertices = fetchVerticesNorm(instance, visibility.primitive_index);
+    TriangleNormUV vertices = fetchVerticesNormUV(instance, visibility.primitive_index);
 
     vertices.v0 = transformPoint(vertices.v0, transform);
     vertices.v1 = transformPoint(vertices.v1, transform);
@@ -1935,9 +1936,16 @@ void PopulateMultibounceCells(uint did)
     float3 world = interpolate(vertices.v0, vertices.v1, vertices.v2, visibility.barycentrics);
     float3 normal = (visibility.is_front_face ? 1.0f : -1.0f) * normalize(interpolate(vertices.n0, vertices.n1, vertices.n2, visibility.barycentrics));
 
+    Material material = g_MaterialBuffer[instance.material_index];
+    float2 mesh_uv = interpolate(vertices.uv0, vertices.uv1, vertices.uv2, visibility.barycentrics);
+    
+    MaterialEvaluated materialEvaluated = MakeMaterialEvaluated(material, mesh_uv);
+    MaterialBRDF materialBRDF = MakeMaterialBRDF(materialEvaluated);
+    
     // Sample diffuse direction
     Quaternion local_rotation = QuaternionRotationZ(normal);
     float3 local_direction    = sampleLambert(0.f, s.xy);
+    float pdf = local_direction.z * INV_PI;
     float3 direction          = normalize(local_rotation.inverse().transform(local_direction));
 
     // Trace
@@ -1946,9 +1954,17 @@ void PopulateMultibounceCells(uint did)
     ray_desc.Origin    = offsetPosition(world, normal);
     ray_desc.TMin      = 0.0f;
     ray_desc.TMax      = MAX_HIT_DISTANCE;
-
+    
+    float3 brdf = materialEvaluated.albedo * local_direction.z; // * INV_PI;
+    
+    // Recover the ray origin
+    float3 origin, unused;
+    Reservoir_UnpackIndirectSample(g_Reservoir_IndirectSampleBuffer[did], origin, unused);
+    
+    //brdf = evaluateBRDFDiffuse(materialBRDF, normal, normalize(origin - world), direction) * (1 / INV_PI);
+    //pdf = 1;
     PopulateMultibounceCellsPayload payload;
-    PopulateMultibounceCellsTraceRay(did, payload, ray_desc);
+    PopulateMultibounceCellsTraceRay(did, payload, ray_desc, brdf, pdf);
 }
 
 [numthreads(32, 1, 1)]
@@ -1966,11 +1982,13 @@ void UpdateMultibounceCells(uint did)
 
     uint cell_index  = g_HashGridCache_MultibounceCellBuffer[did];
     uint query_index = g_HashGridCache_MultibounceQueryBuffer[did];   // BE CAREFUL: also a cell
-
+    
     // BE CAREFUL: g_HashGridCache_ValueBuffer contains last frame
     float4 radiance           = HashGridCache_FilteredRadiance(cell_index, g_HashGridCacheConstants.max_multibounce_sample_count, false);
            radiance.rgb      /= 1.0 - g_HashGridCacheConstants.discard_multibounce_ray_probability;
-    uint4  quantized_radiance = HashGridCache_QuantizeRadiance(radiance.xyz / max(radiance.w, 1.f));
+    radiance.rgb /= max(radiance.w, 1.f);
+    
+    uint4 quantized_radiance = HashGridCache_QuantizeRadiance(radiance.rgb);
 
     if (dot(radiance, radiance) > 0.0f)
     {
@@ -2834,6 +2852,9 @@ void TraceReflectionsHandleHit(uint did, inout TraceReflectionsPayload payload, 
 
                 float4 li            = HashGridCache_FilteredRadiance(cell_index, g_HashGridCacheConstants.max_sample_count, false);
                 payload.radiance     = (li.xyz / max(li.w, 1.0f));
+                MaterialEvaluated materialEvaluated = MakeMaterialEvaluated(hit_material, hit_mesh_uv);
+                MaterialBRDF materialBRDF = MakeMaterialBRDF(materialEvaluated);
+                payload.radiance *= materialBRDF.albedo;
                 payload.hit_distance = hit_distance;
             }
         }

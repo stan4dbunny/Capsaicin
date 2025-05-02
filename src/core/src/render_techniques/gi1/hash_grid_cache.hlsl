@@ -68,6 +68,7 @@ RWStructuredBuffer<float4> g_HashGridCache_BuffersFloat4[] : register(space98);
 #define                    g_HashGridCache_MultibounceCountBuffer        g_HashGridCache_BuffersUint  [HASHGRIDCACHE_MULTIBOUNCECOUNTBUFFER]
 #define                    g_HashGridCache_MultibounceCellBuffer         g_HashGridCache_BuffersUint  [HASHGRIDCACHE_MULTIBOUNCECELLBUFFER]
 #define                    g_HashGridCache_MultibounceQueryBuffer        g_HashGridCache_BuffersUint  [HASHGRIDCACHE_MULTIBOUNCEQUERYBUFFER]
+#define                    g_HashGridCache_MultibounceInfoBuffer         g_HashGridCache_BuffersFloat4[HASHGRIDCACHE_MULTIBOUNCEINFOBUFFER]
 #define                    g_HashGridCache_ResolveCountBuffer            g_HashGridCache_BuffersUint  [HASHGRIDCACHE_RESOLVECOUNTBUFFER]
 #define                    g_HashGridCache_ResolveBuffer                 g_HashGridCache_BuffersUint  [HASHGRIDCACHE_RESOLVEBUFFER]
 #define                    g_HashGridCache_PackedTileCountBuffer         g_HashGridCache_BuffersUint  [HASHGRIDCACHE_PACKEDTILECOUNTBUFFER0 + g_HashGridCacheConstants.buffer_ping_pong]
@@ -394,6 +395,18 @@ HashGridCache_Visibility HashGridCache_UnpackVisibility(in float4 packed_visibil
     visibility.barycentrics.x  = f16tof32(asuint(packed_visibility.w) >> 16);
     visibility.barycentrics.y  = f16tof32(asuint(packed_visibility.w) & 0xFFFFu);
     return visibility;
+}
+
+uint HashGridCache_PackColor(float3 albedo)
+{
+    uint3 packed_albedo = uint3(round(albedo * 255.0f));
+    return (packed_albedo.x << 16) | (packed_albedo.y << 8) | packed_albedo.z;
+}
+
+float3 HashGridCache_UnpackColor(uint packed)
+{
+    uint3 albedo = uint3(packed >> 16, packed >> 8, packed) & 0xFFu;
+    return float3(float(albedo.x) / 255.0f, float(albedo.y) / 255.0f, float(albedo.z) / 255.0f);
 }
 
 float3 HashGridCache_HeatColor(float heatValue)

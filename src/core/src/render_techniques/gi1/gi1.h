@@ -289,6 +289,7 @@ protected:
         GfxBuffer &radiance_cache_multibounce_count_buffer_;
         GfxBuffer &radiance_cache_multibounce_cell_buffer_;
         GfxBuffer &radiance_cache_multibounce_query_buffer_;
+        GfxBuffer &radiance_cache_multibounce_info_buffer_;
         GfxBuffer &radiance_cache_resolve_count_buffer_;
         GfxBuffer &radiance_cache_resolve_buffer_;
         GfxBuffer &radiance_cache_packed_tile_count_buffer0_;

@@ -203,9 +203,21 @@ float3 evaluateBRDFDiffuse(MaterialBRDF material, float dotHV, float dotNL)
     float3 diffuse = evaluateLambert(material.albedo);
 
     // Add the weight of the diffuse compensation term to prevent excessive brightness compared to specular
-    diffuse *= diffuseCompensation(fresnel(0.04f.xxx, dotHV), dotHV);
+    diffuse *= diffuseCompensationTerm(fresnel(0.04f.xxx, dotHV), dotHV);
     float3 brdf = diffuse * saturate(dotNL);
     return brdf;
+}
+
+// Overload
+float3 evaluateBRDFDiffuse(MaterialBRDF material, float3 normal, float3 viewDirection, float3 lightDirection)
+{
+    // Calculate shading angles
+    float dotNL = clamp(dot(normal, lightDirection), -1.0f, 1.0f);
+    // Calculate half vector
+    float3 halfVector = normalize(viewDirection + lightDirection);
+    float dotHV = saturate(dot(halfVector, viewDirection));
+    
+    return evaluateBRDFDiffuse(material, dotHV, dotNL);
 }
 
 #ifndef DISABLE_SPECULAR_MATERIALS
