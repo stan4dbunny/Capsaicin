@@ -41,6 +41,8 @@ uint   g_UseDirectLighting;
 uint   g_UseTemporalFeedback;
 uint   g_UseTemporalMultibounceFeedback;
 uint   g_UseScreenSpaceReflections;
+uint   g_UseAlbedoReflections;
+uint   g_UseMultibounce;
 uint   g_UseBypassCache;
 StructuredBuffer<float> g_Exposure;
 
@@ -1700,7 +1702,7 @@ void InterpolateScreenProbes(in uint2 did : SV_DispatchThreadID)
         }
 
         radiance.xyz /= (1.0f + radiance.xyz);
-        
+
         if (g_GlossyReflectionsConstants.half_res && GlossyReflections_QueueSample(did))
         {
             g_GlossyReflections_SpecularBuffer[did >> 1]  = float4(radiance, denoiser_hint);
@@ -1784,7 +1786,7 @@ void PopulateMultibounceCellsHandleHit(uint did, inout PopulateMultibounceCellsP
         InterlockedAdd(g_HashGridCache_MultibounceCountBuffer[0], 1, multibounce_index);
         g_HashGridCache_MultibounceCellBuffer[multibounce_index]  = cell_index;
         g_HashGridCache_MultibounceQueryBuffer[multibounce_index] = g_HashGridCache_VisibilityCellBuffer[did];  // BE CAREFUL: also a cell
-        //g_HashGridCache_MultibounceInfoBuffer[multibounce_index] = float4(albedo, pdf);
+        g_HashGridCache_MultibounceInfoBuffer[multibounce_index] = float4(albedo, pdf);
 
 
         // Bump the cell's decay to the max. now that it's been 'touched'
@@ -1954,15 +1956,11 @@ void PopulateMultibounceCells(uint did)
     ray_desc.Origin    = offsetPosition(world, normal);
     ray_desc.TMin      = 0.0f;
     ray_desc.TMax      = MAX_HIT_DISTANCE;
-    
-    float3 brdf = materialEvaluated.albedo * local_direction.z; // * INV_PI;
-    
+
     // Recover the ray origin
     float3 origin, unused;
     Reservoir_UnpackIndirectSample(g_Reservoir_IndirectSampleBuffer[did], origin, unused);
-    
-    //brdf = evaluateBRDFDiffuse(materialBRDF, normal, normalize(origin - world), direction) * (1 / INV_PI);
-    //pdf = 1;
+    float3 brdf = evaluateBRDF(materialBRDF, normal, normalize(origin - world), direction);
     PopulateMultibounceCellsPayload payload;
     PopulateMultibounceCellsTraceRay(did, payload, ray_desc, brdf, pdf);
 }
@@ -1982,12 +1980,17 @@ void UpdateMultibounceCells(uint did)
 
     uint cell_index  = g_HashGridCache_MultibounceCellBuffer[did];
     uint query_index = g_HashGridCache_MultibounceQueryBuffer[did];   // BE CAREFUL: also a cell
-    
+    float4 query_info = g_HashGridCache_MultibounceInfoBuffer[did];
+    float3 brdf = query_info.xyz;
+    float pdf = query_info.w;
     // BE CAREFUL: g_HashGridCache_ValueBuffer contains last frame
     float4 radiance           = HashGridCache_FilteredRadiance(cell_index, g_HashGridCacheConstants.max_multibounce_sample_count, false);
-           radiance.rgb      /= 1.0 - g_HashGridCacheConstants.discard_multibounce_ray_probability;
     radiance.rgb /= max(radiance.w, 1.f);
     
+    if (pdf < 0.00001f) pdf = 1.f;
+    ///radiance.rgb *= (brdf / pdf);
+    
+    radiance.rgb /= 1.0 - g_HashGridCacheConstants.discard_multibounce_ray_probability;
     uint4 quantized_radiance = HashGridCache_QuantizeRadiance(radiance.rgb);
 
     if (dot(radiance, radiance) > 0.0f)
@@ -2852,9 +2855,14 @@ void TraceReflectionsHandleHit(uint did, inout TraceReflectionsPayload payload, 
 
                 float4 li            = HashGridCache_FilteredRadiance(cell_index, g_HashGridCacheConstants.max_sample_count, false);
                 payload.radiance     = (li.xyz / max(li.w, 1.0f));
-                MaterialEvaluated materialEvaluated = MakeMaterialEvaluated(hit_material, hit_mesh_uv);
-                MaterialBRDF materialBRDF = MakeMaterialBRDF(materialEvaluated);
-                payload.radiance *= materialBRDF.albedo;
+                
+                if (g_UseAlbedoReflections && g_UseMultibounce)
+                {
+                    MaterialEvaluated materialEvaluated = MakeMaterialEvaluated(hit_material, hit_mesh_uv);
+                    MaterialBRDF materialBRDF = MakeMaterialBRDF(materialEvaluated);
+                    float3 albedo_radiance = materialBRDF.albedo * PI;
+                    payload.radiance *= albedo_radiance;
+                }     
                 payload.hit_distance = hit_distance;
             }
         }
@@ -2981,6 +2989,7 @@ void TraceReflections(in uint did)
     payload.radiance /= (1.0f + payload.radiance);
 
     int2 half_pos = GlossyReflections_FullToHalfRes(full_pos);
+    
     g_GlossyReflections_SpecularBuffer[half_pos]  = float4(payload.radiance, payload.hit_distance);
     g_GlossyReflections_DirectionBuffer[half_pos] = payload.hit_distance > 0.f && payload.hit_distance < 100.f
                                                     ? float4(world + payload.hit_distance * direction - g_Eye, 1.f)

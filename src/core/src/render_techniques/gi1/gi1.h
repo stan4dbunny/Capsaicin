@@ -54,6 +54,7 @@ public:
         bool  gi1_use_temporal_feedback                               = false;
         bool  gi1_use_temporal_multibounce_feedback                   = false;
         bool  gi1_use_screen_space_reflections                        = false;
+        bool  gi1_use_albedo_reflections                              = false;
         bool  gi1_use_bypass_cache                                    = true;
         bool  gi1_use_multibounce                                     = true;
         bool  gi1_disable_albedo_textures                             = false;
