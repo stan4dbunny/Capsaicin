@@ -58,6 +58,21 @@ float powerHeuristic(float fPDF, float gPDF)
 }
 
 /**
+ * Power heuristic used in MIS weight calculation.
+ * @param nf   The amount of samples taken from fPDF
+ * @param fPDF The PDF of the sampled value.
+ * @param ng   The amount of samples taken from gPDF
+ * @param gPDF The PDF of the MIS weighting value.
+ * @return The calculated weight.
+ */
+float powerHeuristic(int nf, float fpdf, int ng, float gpdf)
+{
+    float f = float(nf) * fpdf;
+    float g = float(ng) * gpdf;
+    return (f * f) / (f * f + g * g);
+}
+
+/**
  * Power heuristic used in MIS weight calculation over 3 input functions.
  * @param fPDF The PDF of the sampled value.
  * @param gPDF The PDF of the MIS weighting value.

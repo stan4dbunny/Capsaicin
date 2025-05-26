@@ -374,11 +374,14 @@ GI1::HashGridCache::HashGridCache(GI1 &gi1)
     , radiance_cache_hash_buffer_(radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_HASHBUFFER])
     , radiance_cache_decay_tile_buffer_(radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_DECAYTILEBUFFER])
     , radiance_cache_value_buffer_(radiance_cache_hash_buffer_uint2_[HASHGRIDCACHE_VALUEBUFFER])
+    , radiance_cache_value_indirect_buffer_(radiance_cache_hash_buffer_uint2_[HASHGRIDCACHE_VALUEINDIRECTBUFFER])
     , radiance_cache_update_tile_buffer_(radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_UPDATETILEBUFFER])
     , radiance_cache_update_tile_count_buffer_(
           radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_UPDATETILECOUNTBUFFER])
     , radiance_cache_update_cell_value_buffer_(
           radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_UPDATECELLVALUEBUFFER])
+    , radiance_cache_update_cell_value_indirect_buffer_(
+          radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_UPDATECELLVALUEINDIRECTBUFFER])
     , radiance_cache_visibility_buffer_(radiance_cache_hash_buffer_float4_[HASHGRIDCACHE_VISIBILITYBUFFER])
     , radiance_cache_visibility_count_buffer0_(
           radiance_cache_hash_buffer_uint_[HASHGRIDCACHE_VISIBILITYCOUNTBUFFER0])
@@ -506,15 +509,33 @@ void GI1::HashGridCache::ensureMemoryIsAllocated([[maybe_unused]] CapsaicinInter
     if (!radiance_cache_value_buffer_ || num_cells != num_cells_)
     {
         gfxDestroyBuffer(gfx_, radiance_cache_value_buffer_);
-
+        
         radiance_cache_value_buffer_ = gfxCreateBuffer<uint2>(gfx_, num_cells);
         radiance_cache_value_buffer_.setName("Capsaicin_RadianceCache_ValueBuffer");
-        radiance_cache_multibounce_info_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, num_cells);
-        radiance_cache_multibounce_info_buffer_.setName("Capsaicin_RadianceCache_MultibounceInfoBuffer");
     }
 
     debug_total_memory_size_in_bytes += radiance_cache_value_buffer_.getSize();
+
+    if (!radiance_cache_multibounce_info_buffer_ || num_cells != num_cells_)
+    {
+        gfxDestroyBuffer(gfx_, radiance_cache_multibounce_info_buffer_);
+        radiance_cache_multibounce_info_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, num_cells);
+        radiance_cache_multibounce_info_buffer_.setName("Capsaicin_RadianceCache_MultibounceInfoBuffer");
+        
+        gfxCommandClearBuffer(gfx_, radiance_cache_multibounce_info_buffer_);
+    }
+
     debug_total_memory_size_in_bytes += radiance_cache_multibounce_info_buffer_.getSize();
+
+    if (!radiance_cache_value_indirect_buffer_ || num_cells != num_cells_)
+    {
+        gfxDestroyBuffer(gfx_, radiance_cache_value_indirect_buffer_);
+
+        radiance_cache_value_indirect_buffer_ = gfxCreateBuffer<uint2>(gfx_, num_cells);
+        radiance_cache_value_indirect_buffer_.setName("Capsaicin_RadianceCache_ValueIndirectBuffer");
+    }
+
+    debug_total_memory_size_in_bytes += radiance_cache_value_indirect_buffer_.getSize();
 
     if (!radiance_cache_update_tile_count_buffer_)
     {
@@ -535,6 +556,17 @@ void GI1::HashGridCache::ensureMemoryIsAllocated([[maybe_unused]] CapsaicinInter
     }
 
     debug_total_memory_size_in_bytes += radiance_cache_update_cell_value_buffer_.getSize();
+
+    if (!radiance_cache_update_cell_value_buffer_ || num_cells != num_cells_)
+    {
+        gfxDestroyBuffer(gfx_, radiance_cache_update_cell_value_indirect_buffer_);
+        radiance_cache_update_cell_value_indirect_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, num_cells << 2);
+        radiance_cache_update_cell_value_indirect_buffer_.setName(
+            "Capsaicin_RadianceCache_UpdateCellValueIndirectBuffer");
+
+        gfxCommandClearBuffer(gfx_, radiance_cache_update_cell_value_indirect_buffer_);
+    }
+    debug_total_memory_size_in_bytes += radiance_cache_update_cell_value_indirect_buffer_.getSize();
 
     if (!radiance_cache_visibility_count_buffer0_)
     {

@@ -277,9 +277,11 @@ protected:
         GfxBuffer &radiance_cache_hash_buffer_;
         GfxBuffer &radiance_cache_decay_tile_buffer_;
         GfxBuffer &radiance_cache_value_buffer_;
+        GfxBuffer &radiance_cache_value_indirect_buffer_;
         GfxBuffer &radiance_cache_update_tile_buffer_;
         GfxBuffer &radiance_cache_update_tile_count_buffer_;
         GfxBuffer &radiance_cache_update_cell_value_buffer_;
+        GfxBuffer &radiance_cache_update_cell_value_indirect_buffer_;
         GfxBuffer &radiance_cache_visibility_buffer_;
         GfxBuffer &radiance_cache_visibility_count_buffer0_;
         GfxBuffer &radiance_cache_visibility_count_buffer1_;

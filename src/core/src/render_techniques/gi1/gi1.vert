@@ -78,13 +78,25 @@ float3 NormalizeRadiance(float4 radiance)
 
 float4 CellRadiance(uint cell_index)
 {
-    float4 radiance = HashGridCache_UnpackRadiance(g_HashGridCache_ValueBuffer[cell_index]);
-    return float4(NormalizeRadiance(radiance), float(radiance.w > 0.f));
+    float4 direct = HashGridCache_UnpackRadiance(g_HashGridCache_ValueBuffer[cell_index]);
+    float4 indirect = HashGridCache_UnpackRadiance(g_HashGridCache_ValueIndirectBuffer[cell_index]);
+    float3 radiance = (direct.rgb / max(direct.w, 1.0f)) + (indirect.rgb / max(indirect.w, 1.0f));
+    return float4(radiance, float(direct.w + indirect.w > 0.f));
 }
 
 float4 CellFilteredRadiance(uint entry_cell_mip0)
 {
-    float4 radiance = HashGridCache_FilteredRadiance(entry_cell_mip0, g_HashGridCacheConstants.max_sample_count, false);
+    float4 direct, indirect;
+    HashGridCache_FilteredRadianceDirect(entry_cell_mip0, false, direct);
+    HashGridCache_FilteredRadianceIndirect(entry_cell_mip0, false, indirect);
+    float3 radiance = (direct.rgb / max(direct.w, 1.0f)) + (indirect.rgb / max(indirect.w, 1.0f));
+    return float4(radiance, float(direct.w + indirect.w > 0.f));
+}
+
+float4 CellFilteredRadianceIndirect(uint entry_cell_mip0)
+{
+    float4 radiance;
+    HashGridCache_FilteredRadianceIndirect(entry_cell_mip0, false, radiance);
     return float4(NormalizeRadiance(radiance), float(radiance.w > 0.f));
 }
 

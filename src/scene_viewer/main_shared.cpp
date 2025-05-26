@@ -84,7 +84,10 @@ vector<CapsaicinMain::SceneData> const CapsaicinMain::scenes = {
      .useEnvironmentMap = true},
     {          .name                 = "Cornell Box",
      .fileName          = {"assets/CapsaicinTestMedia/cornell_box_2/scene.gltf"},
-     .useEnvironmentMap = true},
+     .useEnvironmentMap = false},
+    //{          .name                 = "Cornell Glossy",
+    // .fileName          = {"assets/CapsaicinTestMedia/cornell_glossy/scene.gltf"},
+    // .useEnvironmentMap = false},
 };
 
 vector<pair<string_view, filesystem::path>> const CapsaicinMain::sceneEnvironmentMaps = {

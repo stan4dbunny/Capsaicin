@@ -144,6 +144,7 @@ PS_OUTPUT ResolveGI1(in float4 pos : SV_Position)
     // compute specular term with split-sum approximation
     float4 radiance_sum = (material_evaluated.roughness > g_GlossyReflectionsConstants.high_roughness_threshold
         ? float4(irradiance, PI) : g_ReflectionBuffer[did]);    // fall back to filtered irradiance past threshold
+    
     float2 lut = g_LutBuffer.SampleLevel(g_LinearSampler, float2(dotNV, material_evaluated.roughness), 0.0f).xy;
     float3 directional_albedo = saturate(materialBRDF.F0 * lut.x + (1.0f - materialBRDF.F0) * lut.y);
     float3 specular = directional_albedo * (radiance_sum.xyz / max(radiance_sum.w, 1.0f));

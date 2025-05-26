@@ -113,6 +113,7 @@ ConstantBuffer<GlossyReflectionsAtrousConstants> g_GlossyReflectionsAtrousConsta
 #include "geometry/intersection.hlsl"
 #include "geometry/geometry.hlsl"
 #include "geometry/mesh.hlsl"
+#include "geometry/mis.hlsl"
 #include "lights/lights.hlsl"
 #include "materials/materials.hlsl"
 #include "materials/material_sampling.hlsl"
@@ -1942,6 +1943,13 @@ void PopulateMultibounceCells(uint did)
     float2 mesh_uv = interpolate(vertices.uv0, vertices.uv1, vertices.uv2, visibility.barycentrics);
     
     MaterialEvaluated materialEvaluated = MakeMaterialEvaluated(material, mesh_uv);
+    
+#ifndef DISABLE_SPECULAR_MATERIALS
+    // Force diffuse lighting on secondary bounce to reduce noise
+    materialEvaluated.metallicity = 0.0f;
+    materialEvaluated.roughness = 1.0f;
+#endif // DISABLE_SPECULAR_MATERIALS
+    
     MaterialBRDF materialBRDF = MakeMaterialBRDF(materialEvaluated);
     
     // Sample diffuse direction
@@ -1955,12 +1963,14 @@ void PopulateMultibounceCells(uint did)
     ray_desc.Direction = direction;
     ray_desc.Origin    = offsetPosition(world, normal);
     ray_desc.TMin      = 0.0f;
-    ray_desc.TMax      = MAX_HIT_DISTANCE;
+    ray_desc.TMax = MAX_HIT_DISTANCE;
 
     // Recover the ray origin
     float3 origin, unused;
     Reservoir_UnpackIndirectSample(g_Reservoir_IndirectSampleBuffer[did], origin, unused);
+
     float3 brdf = evaluateBRDF(materialBRDF, normal, normalize(origin - world), direction);
+    
     PopulateMultibounceCellsPayload payload;
     PopulateMultibounceCellsTraceRay(did, payload, ray_desc, brdf, pdf);
 }
@@ -1984,22 +1994,24 @@ void UpdateMultibounceCells(uint did)
     float3 brdf = query_info.xyz;
     float pdf = query_info.w;
     // BE CAREFUL: g_HashGridCache_ValueBuffer contains last frame
-    float4 radiance           = HashGridCache_FilteredRadiance(cell_index, g_HashGridCacheConstants.max_multibounce_sample_count, false);
-    radiance.rgb /= max(radiance.w, 1.f);
+    float4 direct_radiance, indirect_radiance;
+    HashGridCache_FilteredRadianceDirect(cell_index, false, direct_radiance);
+    HashGridCache_FilteredRadianceIndirect(cell_index, false, indirect_radiance);
     
-    if (pdf < 0.00001f) pdf = 1.f;
-    ///radiance.rgb *= (brdf / pdf);
-    
+    float3 radiance = (direct_radiance.rgb / max(direct_radiance.w, 1.0f)) + (indirect_radiance.rgb / max(indirect_radiance.w, 1.0f));
+
+    radiance.rgb = (radiance.rgb * brdf) / pdf;
+    //radiance.rgb = (radiance.rgb * float3(0.2f, 0, 0)) / 0.2f;
     radiance.rgb /= 1.0 - g_HashGridCacheConstants.discard_multibounce_ray_probability;
     uint4 quantized_radiance = HashGridCache_QuantizeRadiance(radiance.rgb);
-
+    
     if (dot(radiance, radiance) > 0.0f)
     {
-        InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * query_index + 0], quantized_radiance.x);
-        InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * query_index + 1], quantized_radiance.y);
-        InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * query_index + 2], quantized_radiance.z);
+        InterlockedAdd(g_HashGridCache_UpdateCellValueIndirectBuffer[4 * query_index + 0], quantized_radiance.x);
+        InterlockedAdd(g_HashGridCache_UpdateCellValueIndirectBuffer[4 * query_index + 1], quantized_radiance.y);
+        InterlockedAdd(g_HashGridCache_UpdateCellValueIndirectBuffer[4 * query_index + 2], quantized_radiance.z);
     }
-    InterlockedAdd(g_HashGridCache_UpdateCellValueBuffer[4 * query_index + 3], quantized_radiance.w);
+    InterlockedAdd(g_HashGridCache_UpdateCellValueIndirectBuffer[4 * query_index + 3], quantized_radiance.w);
 
     // BE CAREFUL: we found no leak with close cells, consider adding bypass if multibounce leaks appear
 }
@@ -2160,6 +2172,7 @@ void PopulateCellsMain(in uint did : SV_DispatchThreadID)
 #define UPDATE_TILES_GROUP_SIZE (UPDATE_TILES_GROUP_X * UPDATE_TILES_GROUP_Y)
 
 groupshared uint2 lds_UpdateTiles_ValueBuffer[UPDATE_TILES_GROUP_X][UPDATE_TILES_GROUP_Y];
+groupshared uint2 lds_UpdateTiles_ValueIndirectBuffer[UPDATE_TILES_GROUP_X][UPDATE_TILES_GROUP_Y];
 
 [numthreads(1, 1, 1)]
 void GenerateUpdateTilesDispatch()
@@ -2197,38 +2210,66 @@ void UpdateTiles(in uint group_id : SV_GroupID, in uint2 group_thread_id : SV_Gr
         uint cell_index  = HashGridCache_CellIndex(subgroup_thread_id, tile_index, 0);
 
         // Temporal accumulation
-        float4 radiance     = HashGridCache_UnpackRadiance(g_HashGridCache_ValueBuffer[cell_index]);
-        float4 new_radiance = HashGridCache_RecoverRadiance(uint4(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 0],
-                                                                  g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 1],
-                                                                  g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 2],
-                                                                  g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 3]));
+        float4 direct_radiance     = HashGridCache_UnpackRadiance(g_HashGridCache_ValueBuffer[cell_index]);
+        float4 indirect_radiance = HashGridCache_UnpackRadiance(g_HashGridCache_ValueIndirectBuffer[cell_index]);
+        float4 new_direct_radiance = HashGridCache_RecoverRadiance(uint4(g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 0],
+                                                                          g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 1],
+                                                                          g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 2],
+                                                                          g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 3]));
+        
+        float4 new_indirect_radiance = HashGridCache_RecoverRadiance(uint4(g_HashGridCache_UpdateCellValueIndirectBuffer[4 * cell_index + 0],
+                                                                          g_HashGridCache_UpdateCellValueIndirectBuffer[4 * cell_index + 1],
+                                                                          g_HashGridCache_UpdateCellValueIndirectBuffer[4 * cell_index + 2],
+                                                                          g_HashGridCache_UpdateCellValueIndirectBuffer[4 * cell_index + 3]));
 
-        float sample_count = min(radiance.w + new_radiance.w, g_HashGridCacheConstants.max_sample_count);
+        float direct_sample_count = min(direct_radiance.w + new_direct_radiance.w, g_HashGridCacheConstants.max_sample_count);
+        float indirect_sample_count = min(indirect_radiance.w + new_indirect_radiance.w, g_HashGridCacheConstants.max_multibounce_sample_count);
 
-        radiance     /= max(radiance.w, 1.0f);
-        new_radiance /= max(new_radiance.w, 1.0f);
-
-        if (radiance.w <= 0.0f)
+        direct_radiance /= max(direct_radiance.w, 1.0f);
+        new_direct_radiance /= max(new_direct_radiance.w, 1.0f);
+        indirect_radiance /= max(indirect_radiance.w, 1.0f);
+        new_indirect_radiance /= max(new_indirect_radiance.w, 1.0f);
+        
+        if (direct_radiance.w <= 0.0f)
         {
-            radiance = new_radiance;
+            direct_radiance = new_direct_radiance;
         }
         else
         {
-            radiance = lerp(radiance, new_radiance, 1.0f / sample_count);
+            direct_radiance = lerp(direct_radiance, new_direct_radiance, 1.0f / direct_sample_count);
+        }
+            
+        if (indirect_radiance.w <= 0.0f)
+        {
+            indirect_radiance = new_indirect_radiance;
+        }
+        else
+        {
+            indirect_radiance = lerp(indirect_radiance, new_indirect_radiance, 1.0f / indirect_sample_count);
         }
 
-        radiance *= sample_count;   // sample count is used as a hint for picking prefiltering amount
+        direct_radiance *= direct_sample_count; // sample count is used as a hint for picking prefiltering amount
+        indirect_radiance *= indirect_sample_count; // sample count is used as a hint for picking prefiltering amount
 
         // Pack
-        uint2 packed_radiance = HashGridCache_PackRadiance(radiance);
-        lds_UpdateTiles_ValueBuffer[group_thread_id.x][group_thread_id.y] = packed_radiance;
-        g_HashGridCache_ValueBuffer[cell_index] = packed_radiance;
-
+        uint2 packed_direct_radiance = HashGridCache_PackRadiance(direct_radiance);
+        lds_UpdateTiles_ValueBuffer[group_thread_id.x][group_thread_id.y] = packed_direct_radiance;
+        g_HashGridCache_ValueBuffer[cell_index] = packed_direct_radiance;
+        
+        uint2 packed_indirect_radiance = HashGridCache_PackRadiance(indirect_radiance);
+        lds_UpdateTiles_ValueIndirectBuffer[group_thread_id.x][group_thread_id.y] = packed_indirect_radiance;
+        g_HashGridCache_ValueIndirectBuffer[cell_index] = packed_indirect_radiance;
+          
         // Clear scratch
         g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 0] = 0;
         g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 1] = 0;
         g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 2] = 0;
         g_HashGridCache_UpdateCellValueBuffer[4 * cell_index + 3] = 0;
+        
+        g_HashGridCache_UpdateCellValueIndirectBuffer[4 * cell_index + 0] = 0;
+        g_HashGridCache_UpdateCellValueIndirectBuffer[4 * cell_index + 1] = 0;
+        g_HashGridCache_UpdateCellValueIndirectBuffer[4 * cell_index + 2] = 0;
+        g_HashGridCache_UpdateCellValueIndirectBuffer[4 * cell_index + 3] = 0;
     }
 
     // MIP 1
@@ -2254,6 +2295,24 @@ void UpdateTiles(in uint group_id : SV_GroupID, in uint2 group_thread_id : SV_Gr
         uint2 packed_radiance = HashGridCache_PackRadiance(radiance);
         lds_UpdateTiles_ValueBuffer[group_thread_id.x][group_thread_id.y] = packed_radiance;
         g_HashGridCache_ValueBuffer[cell_index] = packed_radiance;
+        
+        // Indirect
+        // Box filter
+        uint2 packed_radiance_indirect00 = lds_UpdateTiles_ValueIndirectBuffer[group_thread_id.x + 0][group_thread_id.y + 0];
+        uint2 packed_radiance_indirect10 = lds_UpdateTiles_ValueIndirectBuffer[group_thread_id.x + 1][group_thread_id.y + 0];
+        uint2 packed_radiance_indirect01 = lds_UpdateTiles_ValueIndirectBuffer[group_thread_id.x + 0][group_thread_id.y + 1];
+        uint2 packed_radiance_indirect11 = lds_UpdateTiles_ValueIndirectBuffer[group_thread_id.x + 1][group_thread_id.y + 1];
+
+        float4 indirect_radiance = float4(0.f, 0.f, 0.f, 0.f);
+        indirect_radiance += HashGridCache_UnpackRadiance(packed_radiance_indirect00);
+        indirect_radiance += HashGridCache_UnpackRadiance(packed_radiance_indirect10);
+        indirect_radiance += HashGridCache_UnpackRadiance(packed_radiance_indirect01);
+        indirect_radiance += HashGridCache_UnpackRadiance(packed_radiance_indirect11);
+
+        // Pack
+        uint2 packed_radiance_indirect = HashGridCache_PackRadiance(indirect_radiance);
+        lds_UpdateTiles_ValueIndirectBuffer[group_thread_id.x][group_thread_id.y] = packed_radiance_indirect;
+        g_HashGridCache_ValueIndirectBuffer[cell_index] = packed_radiance_indirect;
     }
 
     // MIP 2
@@ -2279,6 +2338,23 @@ void UpdateTiles(in uint group_id : SV_GroupID, in uint2 group_thread_id : SV_Gr
         uint2 packed_radiance = HashGridCache_PackRadiance(radiance);
         lds_UpdateTiles_ValueBuffer[group_thread_id.x][group_thread_id.y] = packed_radiance;
         g_HashGridCache_ValueBuffer[cell_index] = packed_radiance;
+        
+        // Box filter
+        uint2 packed_radiance_indirect00 = lds_UpdateTiles_ValueIndirectBuffer[group_thread_id.x + 0][group_thread_id.y + 0];
+        uint2 packed_radiance_indirect20 = lds_UpdateTiles_ValueIndirectBuffer[group_thread_id.x + 2][group_thread_id.y + 0];
+        uint2 packed_radiance_indirect02 = lds_UpdateTiles_ValueIndirectBuffer[group_thread_id.x + 0][group_thread_id.y + 2];
+        uint2 packed_radiance_indirect22 = lds_UpdateTiles_ValueIndirectBuffer[group_thread_id.x + 2][group_thread_id.y + 2];
+
+        float4 radiance_indirect = float4(0.f, 0.f, 0.f, 0.f);
+        radiance_indirect += HashGridCache_UnpackRadiance(packed_radiance_indirect00);
+        radiance_indirect += HashGridCache_UnpackRadiance(packed_radiance_indirect20);
+        radiance_indirect += HashGridCache_UnpackRadiance(packed_radiance_indirect02);
+        radiance_indirect += HashGridCache_UnpackRadiance(packed_radiance_indirect22);
+
+        // Pack
+        uint2 packed_radiance_indirect = HashGridCache_PackRadiance(radiance_indirect);
+        lds_UpdateTiles_ValueIndirectBuffer[group_thread_id.x][group_thread_id.y] = packed_radiance_indirect;
+        g_HashGridCache_ValueIndirectBuffer[cell_index] = packed_radiance_indirect;
     }
 
     // MIP 3
@@ -2302,6 +2378,21 @@ void UpdateTiles(in uint group_id : SV_GroupID, in uint2 group_thread_id : SV_Gr
 
         // Pack
         g_HashGridCache_ValueBuffer[cell_index] = HashGridCache_PackRadiance(radiance);
+        
+        // Box filter
+        uint2 packed_radiance_indirect00 = lds_UpdateTiles_ValueIndirectBuffer[group_thread_id.x + 0][group_thread_id.y + 0];
+        uint2 packed_radiance_indirect40 = lds_UpdateTiles_ValueIndirectBuffer[group_thread_id.x + 4][group_thread_id.y + 0];
+        uint2 packed_radiance_indirect04 = lds_UpdateTiles_ValueIndirectBuffer[group_thread_id.x + 0][group_thread_id.y + 4];
+        uint2 packed_radiance_indirect44 = lds_UpdateTiles_ValueIndirectBuffer[group_thread_id.x + 4][group_thread_id.y + 4];
+
+        float4 radiance_indirect = float4(0.f, 0.f, 0.f, 0.f);
+        radiance_indirect += HashGridCache_UnpackRadiance(packed_radiance_indirect00);
+        radiance_indirect += HashGridCache_UnpackRadiance(packed_radiance_indirect40);
+        radiance_indirect += HashGridCache_UnpackRadiance(packed_radiance_indirect04);
+        radiance_indirect += HashGridCache_UnpackRadiance(packed_radiance_indirect44);
+
+        // Pack
+        g_HashGridCache_ValueIndirectBuffer[cell_index] = HashGridCache_PackRadiance(radiance_indirect);
     }
 }
 
@@ -2324,9 +2415,12 @@ void ResolveCells(in uint did : SV_DispatchThreadID)
     uint cell_index  = g_HashGridCache_VisibilityCellBuffer[visibility_index];
     uint query_index = g_HashGridCache_VisibilityQueryBuffer[visibility_index];
 
-    float4 radiance = HashGridCache_FilteredRadiance(cell_index, g_HashGridCacheConstants.max_sample_count, false);
+    float4 direct_radiance, indirect_radiance;
+    HashGridCache_FilteredRadianceDirect(cell_index, false, direct_radiance);
+    HashGridCache_FilteredRadianceIndirect(cell_index, false, indirect_radiance);
 
-    ScreenProbes_AccumulateRadiance(query_index, radiance.xyz / max(radiance.w, 1.0f));
+    float3 radiance = (direct_radiance.rgb / max(direct_radiance.w, 1.0f)) + (indirect_radiance.rgb / max(indirect_radiance.w, 1.0f));
+    ScreenProbes_AccumulateRadiance(query_index, radiance);
 }
 
 //!
@@ -2853,16 +2947,11 @@ void TraceReflectionsHandleHit(uint did, inout TraceReflectionsPayload payload, 
                 uint previous_tile_decay;
                 InterlockedExchange(g_HashGridCache_DecayTileBuffer[tile_index], g_FrameIndex, previous_tile_decay);
 
-                float4 li            = HashGridCache_FilteredRadiance(cell_index, g_HashGridCacheConstants.max_sample_count, false);
-                payload.radiance     = (li.xyz / max(li.w, 1.0f));
-                
-                if (g_UseAlbedoReflections && g_UseMultibounce)
-                {
-                    MaterialEvaluated materialEvaluated = MakeMaterialEvaluated(hit_material, hit_mesh_uv);
-                    MaterialBRDF materialBRDF = MakeMaterialBRDF(materialEvaluated);
-                    float3 albedo_radiance = materialBRDF.albedo * PI;
-                    payload.radiance *= albedo_radiance;
-                }     
+                float4 direct_radiance, indirect_radiance;
+                HashGridCache_FilteredRadianceDirect(cell_index, false, direct_radiance);
+                HashGridCache_FilteredRadianceIndirect(cell_index, false, indirect_radiance);
+                float3 radiance = (direct_radiance.rgb / max(direct_radiance.w, 1.0f)) + (indirect_radiance.rgb / max(indirect_radiance.w, 1.0f));
+                payload.radiance = radiance;        
                 payload.hit_distance = hit_distance;
             }
         }
