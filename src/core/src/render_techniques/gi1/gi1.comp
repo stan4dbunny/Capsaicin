@@ -1994,14 +1994,12 @@ void UpdateMultibounceCells(uint did)
     float3 brdf = query_info.xyz;
     float pdf = query_info.w;
     // BE CAREFUL: g_HashGridCache_ValueBuffer contains last frame
-    float4 direct_radiance, indirect_radiance;
+    float4 direct_radiance;
     HashGridCache_FilteredRadianceDirect(cell_index, false, direct_radiance);
-    HashGridCache_FilteredRadianceIndirect(cell_index, false, indirect_radiance);
     
-    float3 radiance = (direct_radiance.rgb / max(direct_radiance.w, 1.0f)) + (indirect_radiance.rgb / max(indirect_radiance.w, 1.0f));
+    float3 radiance = (direct_radiance.rgb / max(direct_radiance.w, 1.0f));
 
     radiance.rgb = (radiance.rgb * brdf) / pdf;
-    //radiance.rgb = (radiance.rgb * float3(0.2f, 0, 0)) / 0.2f;
     radiance.rgb /= 1.0 - g_HashGridCacheConstants.discard_multibounce_ray_probability;
     uint4 quantized_radiance = HashGridCache_QuantizeRadiance(radiance.rgb);
     
