@@ -1252,7 +1252,6 @@ RenderOptionList GI1::getRenderOptions() noexcept
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_use_temporal_feedback, options_));
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_use_temporal_multibounce_feedback, options_));
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_use_screen_space_reflections, options_));
-    newOptions.emplace(RENDER_OPTION_MAKE(gi1_use_albedo_reflections, options_));
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_use_bypass_cache, options_));
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_use_multibounce, options_));
     newOptions.emplace(RENDER_OPTION_MAKE(gi1_disable_albedo_textures, options_));
@@ -1307,7 +1306,6 @@ GI1::RenderOptions GI1::convertOptions(RenderOptionList const &options) noexcept
     RENDER_OPTION_GET(gi1_use_temporal_feedback, newOptions, options)
     RENDER_OPTION_GET(gi1_use_temporal_multibounce_feedback, newOptions, options)
     RENDER_OPTION_GET(gi1_use_screen_space_reflections, newOptions, options)
-    RENDER_OPTION_GET(gi1_use_albedo_reflections, newOptions, options)
     RENDER_OPTION_GET(gi1_use_bypass_cache, newOptions, options)
     RENDER_OPTION_GET(gi1_use_multibounce, newOptions, options)
     RENDER_OPTION_GET(gi1_disable_albedo_textures, newOptions, options)
@@ -1936,7 +1934,6 @@ void GI1::render(CapsaicinInternal &capsaicin) noexcept
         gfx_, gi1_program_, "g_UseTemporalFeedback", options_.gi1_use_temporal_feedback ? 1 : 0);
     gfxProgramSetParameter(gfx_, gi1_program_, "g_UseTemporalMultibounceFeedback", options_.gi1_use_temporal_multibounce_feedback ? 1 : 0);
     gfxProgramSetParameter(gfx_, gi1_program_, "g_UseScreenSpaceReflections", options_.gi1_use_screen_space_reflections ? 1 : 0);
-    gfxProgramSetParameter(gfx_, gi1_program_, "g_UseAlbedoReflections", options_.gi1_use_albedo_reflections ? 1 : 0);
     gfxProgramSetParameter(gfx_, gi1_program_, "g_UseMultibounce", options_.gi1_use_multibounce ? 1 : 0);
     gfxProgramSetParameter(gfx_, gi1_program_, "g_UseBypassCache", options_.gi1_use_bypass_cache ? 1 : 0);
     gfxProgramSetParameter(

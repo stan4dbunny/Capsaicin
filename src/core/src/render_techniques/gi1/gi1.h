@@ -53,8 +53,7 @@ public:
         bool  gi1_use_direct_lighting                                 = true;
         bool  gi1_use_temporal_feedback                               = false;
         bool  gi1_use_temporal_multibounce_feedback                   = false;
-        bool  gi1_use_screen_space_reflections                        = false;
-        bool  gi1_use_albedo_reflections                              = false;
+        bool  gi1_use_screen_space_reflections                        = true;
         bool  gi1_use_bypass_cache                                    = true;
         bool  gi1_use_multibounce                                     = true;
         bool  gi1_disable_albedo_textures                             = false;
@@ -66,7 +65,7 @@ public:
         int   gi1_hash_grid_cache_num_tiles_per_bucket                = 4;    // 1 <<  4
         float gi1_hash_grid_cache_max_sample_count                    = 16.f; //
         float gi1_hash_grid_cache_discard_multibounce_ray_probability = 0.7f;
-        float gi1_hash_grid_cache_max_multibounce_sample_count        = 256.f;
+        float gi1_hash_grid_cache_max_multibounce_sample_count        = 16.f;
         int   gi1_hash_grid_cache_debug_mip_level                     = 0;
         bool  gi1_hash_grid_cache_debug_propagate                     = false;
         int   gi1_hash_grid_cache_debug_max_cell_decay                = 0; // Debug cells touched this frame
