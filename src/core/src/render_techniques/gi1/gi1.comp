@@ -113,7 +113,6 @@ ConstantBuffer<GlossyReflectionsAtrousConstants> g_GlossyReflectionsAtrousConsta
 #include "geometry/intersection.hlsl"
 #include "geometry/geometry.hlsl"
 #include "geometry/mesh.hlsl"
-#include "geometry/mis.hlsl"
 #include "lights/lights.hlsl"
 #include "materials/materials.hlsl"
 #include "materials/material_sampling.hlsl"

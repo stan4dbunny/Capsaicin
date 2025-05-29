@@ -208,7 +208,14 @@ float3 evaluateBRDFDiffuse(MaterialBRDF material, float dotHV, float dotNL)
     return brdf;
 }
 
-// Overload
+/**
+ * Evaluate the diffuse component of the BRDF.
+ * @param material       Material data describing BRDF.
+ * @param normal         The normal of the surface
+ * @param viewDirection  The direction from the hit point towards the view point
+ * @param lightDirection The direction from the hit point towards the light
+ * @return The calculated reflectance.
+ */
 float3 evaluateBRDFDiffuse(MaterialBRDF material, float3 normal, float3 viewDirection, float3 lightDirection)
 {
     // Calculate shading angles

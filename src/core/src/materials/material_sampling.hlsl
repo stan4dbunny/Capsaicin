@@ -418,7 +418,16 @@ float sampleBRDFPDFAndEvalute(MaterialBRDF material, float3 normal, float3 viewD
     return samplePDF;
 }
 
-// Overload
+/**
+ * Calculate the PDF and evaluate radiance for given values for the combined BRDF.
+ * @param material       Material data describing BRDF.
+ * @param normal         Shading normal vector at current position.
+ * @param viewDirection  Outgoing ray view direction.
+ * @param lightDirection Incoming ray light direction.
+ * @param reflectance    (Out) Evaluated reflectance associated with the sampled ray direction.
+ * @param firsthit       True if this was the first hit, for the debug reflection view. 
+ * @return The calculated PDF.
+ */
 float sampleBRDFPDFAndEvalute(MaterialBRDF material, float3 normal, float3 viewDirection,
     float3 lightDirection, out float3 reflectance, bool firstHit)
 {
@@ -580,7 +589,18 @@ float3 sampleBRDF(MaterialBRDF material, inout RNG randomNG, float3 normal, floa
     return sampleBRDFType(material, randomNG, normal, viewDirection, reflectance, pdf, unused);
 }
 
-// Overload
+/**
+ * Calculates a reflected ray direction from a surface by sampling its BRDF.
+ * @tparam RNG The type of random number sampler to be used.
+ * @param material       Material data describing BRDF of surface.
+ * @param randomNG       Random number sampler used to sample BRDF.
+ * @param normal         Shading normal vector at current position.
+ * @param viewDirection  Outgoing ray view direction.
+ * @param reflectance    (Out) Evaluated reflectance associated with the sampled ray direction.
+ * @param pdf            (Out) PDF weight associated with the sampled ray direction.
+ * @param specularSampled (Out) True if the specular component was sampled.
+ * @return The new outgoing light ray direction.
+ */
 template<typename RNG>
 float3 sampleBRDF(MaterialBRDF material, inout RNG randomNG, float3 normal, float3 viewDirection,
     out float3 reflectance, out float pdf, out bool specularSampled)

@@ -459,61 +459,6 @@ float4 HashGridCache_FilteredRadiance(uint cell_index_mip0, float max_sample_cou
     return radiance;
 }
 
-// Overload
-
-/*
-void HashGridCache_FilteredRadiance(uint cell_index_mip0, bool debug_mip_level, out float4 direct_radiance, out float4 indirect_radiance)
-{
-    uint2 cell_offset_mip0;
-    uint tile_index = HashGridCache_CellOffsetMip0(cell_index_mip0, cell_offset_mip0);
-    uint cell_index_mip1 = g_HashGridCacheConstants.size_tile_mip1 > 0 ? HashGridCache_CellIndex(cell_offset_mip0, tile_index, 1) : kGI1_InvalidId;
-    uint cell_index_mip2 = g_HashGridCacheConstants.size_tile_mip2 > 0 ? HashGridCache_CellIndex(cell_offset_mip0, tile_index, 2) : kGI1_InvalidId;
-    uint cell_index_mip3 = g_HashGridCacheConstants.size_tile_mip3 > 0 ? HashGridCache_CellIndex(cell_offset_mip0, tile_index, 3) : kGI1_InvalidId;
-
-    // Select best mip
-    float4 radiance;
-    bool use_mip;
-    bool use_mip_indirect;
-
-    // Mip 0
-    radiance = HashGridCache_UnpackRadiance(g_HashGridCache_ValueBuffer[cell_index_mip0]);
-    radiance = debug_mip_level ? float4(HashGridCache_HeatColor(1.000f), radiance.w) : radiance;
-    
-    indirect_radiance = HashGridCache_UnpackRadiance(g_HashGridCache_ValueIndirectBuffer[cell_index_mip0]);
-    indirect_radiance = debug_mip_level ? float4(HashGridCache_HeatColor(1.000f), indirect_radiance.w) : indirect_radiance;
-
-    // Mip 1
-    use_mip = radiance.w < g_HashGridCacheConstants.max_sample_count && cell_index_mip1 != kGI1_InvalidId;
-    radiance = use_mip ? HashGridCache_UnpackRadiance(g_HashGridCache_ValueBuffer[cell_index_mip1]) : radiance;
-    radiance = debug_mip_level && use_mip ? float4(HashGridCache_HeatColor(0.666f), radiance.w) : radiance;
-    
-    use_mip_indirect = indirect_radiance.w < g_HashGridCacheConstants.max_multibounce_sample_count && cell_index_mip1 != kGI1_InvalidId;
-    indirect_radiance = use_mip_indirect ? HashGridCache_UnpackRadiance(g_HashGridCache_ValueIndirectBuffer[cell_index_mip1]) : indirect_radiance;
-    indirect_radiance = debug_mip_level && use_mip_indirect ? float4(HashGridCache_HeatColor(0.666f), indirect_radiance.w) : indirect_radiance;
-
-    // Mip 2
-    use_mip = radiance.w < g_HashGridCacheConstants.max_sample_count && cell_index_mip2 != kGI1_InvalidId;
-    radiance = use_mip ? HashGridCache_UnpackRadiance(g_HashGridCache_ValueBuffer[cell_index_mip2]) : radiance;
-    radiance = debug_mip_level && use_mip ? float4(HashGridCache_HeatColor(0.333f), radiance.w) : radiance;
-    
-    use_mip_indirect = indirect_radiance.w < g_HashGridCacheConstants.max_multibounce_sample_count && cell_index_mip2 != kGI1_InvalidId;
-    indirect_radiance = use_mip_indirect ? HashGridCache_UnpackRadiance(g_HashGridCache_ValueIndirectBuffer[cell_index_mip2]) : indirect_radiance;
-    indirect_radiance = debug_mip_level && use_mip_indirect ? float4(HashGridCache_HeatColor(0.333f), indirect_radiance.w) : indirect_radiance;
-
-    // Mip 3
-    use_mip = radiance.w < g_HashGridCacheConstants.max_sample_count && cell_index_mip3 != kGI1_InvalidId;
-    radiance = use_mip ? HashGridCache_UnpackRadiance(g_HashGridCache_ValueBuffer[cell_index_mip3]) : radiance;
-    radiance = debug_mip_level && use_mip ? float4(HashGridCache_HeatColor(0.000f), radiance.w) : radiance;
-    
-    use_mip_indirect = indirect_radiance.w < g_HashGridCacheConstants.max_multibounce_sample_count && cell_index_mip3 != kGI1_InvalidId;
-    indirect_radiance = use_mip_indirect ? HashGridCache_UnpackRadiance(g_HashGridCache_ValueIndirectBuffer[cell_index_mip3]) : indirect_radiance;
-    indirect_radiance = debug_mip_level && use_mip_indirect ? float4(HashGridCache_HeatColor(0.000f), indirect_radiance.w) : indirect_radiance;
-
-    // Done
-    direct_radiance = radiance;
-    return;
-}
-*/
 void HashGridCache_FilteredRadianceIndirect(uint cell_index_mip0, bool debug_mip_level, out float4 indirect_radiance)
 {
     uint2 cell_offset_mip0;

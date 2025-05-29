@@ -102,10 +102,13 @@ float4 CellFilteredRadianceIndirect(uint entry_cell_mip0)
 
 float4 CellFilteringGain(uint entry_cell_mip0)
 {
-    float4 filtered_radiance = HashGridCache_FilteredRadiance(entry_cell_mip0, g_HashGridCacheConstants.max_sample_count, false);
-    float4 base_radiance = HashGridCache_UnpackRadiance(g_HashGridCache_ValueBuffer[entry_cell_mip0]);
-    float3 diff_radiance = max(0.f, NormalizeRadiance(filtered_radiance) - NormalizeRadiance(base_radiance));
-    return float4(diff_radiance, float(filtered_radiance.w > 0.f));
+    float4 filtered_direct_radiance, filtered_indirect_radiance;
+    HashGridCache_FilteredRadianceDirect(entry_cell_mip0, false, filtered_direct_radiance);
+    HashGridCache_FilteredRadianceIndirect(entry_cell_mip0, false, filtered_indirect_radiance);
+    float4 direct_radiance = HashGridCache_UnpackRadiance(g_HashGridCache_ValueBuffer[entry_cell_mip0]);
+    float4 indirect_radiance = HashGridCache_UnpackRadiance(g_HashGridCache_ValueIndirectBuffer[entry_cell_mip0]);
+    float3 diff_radiance = max(0.f, NormalizeRadiance(filtered_direct_radiance) + NormalizeRadiance(filtered_indirect_radiance) - NormalizeRadiance(direct_radiance) + NormalizeRadiance(indirect_radiance));
+    return float4(diff_radiance, float((filtered_direct_radiance.w + filtered_indirect_radiance.w) > 0.f));
 }
 
 float4 HeatSampleCount(float4 radiance)
@@ -122,6 +125,7 @@ float4 CellRadianceSampleCount(uint cell_index)
     if (all(packed_radiance == uint2(0, 0)))
         return float4(0.f, 0.f, 0.f, 0.f);
 
+    
     float4 radiance = HashGridCache_UnpackRadiance(packed_radiance);
     return HeatSampleCount(radiance);
 }

@@ -201,7 +201,19 @@ void shadeLightHit(RayDesc ray, MaterialBRDF material, float3 normal, float3 vie
 #endif // DISABLE_NON_NEE
 }
 
-// Overload
+/**
+ * Calculate any radiance from a hit light.
+ * @param ray               The traced ray that hit a surface.
+ * @param material          Material data describing BRDF of surface.
+ * @param normal            Shading normal vector at current position.
+ * @param viewDirection     Outgoing ray view direction.
+ * @param throughput        The current paths combined throughput.
+ * @param lightPDF          The PDF of sampling the returned light direction.
+ * @param radianceLi        The radiance visible along sampled light.
+ * @param selectedLight     The light that was selected for sampling.
+ * @param [in,out] radiance The combined radiance. Any new radiance is added to the existing value and returned.
+ * @param firstHit          True if this is the first hit
+ */
 void shadeLightHit(RayDesc ray, MaterialBRDF material, float3 normal, float3 viewDirection, float3 throughput,
     float lightPDF, float3 radianceLi, Light selectedLight, inout float3 radiance, bool firstHit)
 {
@@ -323,7 +335,20 @@ void sampleLightsNEE(MaterialBRDF material, inout StratifiedSampler randomStrati
     }
 }
 
-// Same as above, except we want to know if we're on the first hit
+/**
+ * Calculates radiance from a new light ray direction from a surface by sampling the scenes lighting.
+ * @tparam RNG The type of random number sampler to be used.
+ * @param material          Material data describing BRDF of surface.
+ * @param randomStratified  Random number sampler used to sample light.
+ * @param lightSampler      Light sampler.
+ * @param position          Current position on surface.
+ * @param normal            Shading normal vector at current position.
+ * @param geometryNormal    Surface normal vector at current position.
+ * @param viewDirection     Outgoing ray view direction.
+ * @param throughput        The current paths combined throughput.
+ * @param [in,out] radiance The combined radiance. Any new radiance is added to the existing value and returned.
+ * @param firstHit          True if this is the first hit.
+ */
 void sampleLightsNEEFirstHitInfo(MaterialBRDF material, inout StratifiedSampler randomStratified, LightSampler lightSampler,
     float3 position, float3 normal, float3 geometryNormal, float3 viewDirection, float3 throughput, inout pathPayload radiance, bool firstHit)
 {
