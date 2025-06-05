@@ -516,6 +516,17 @@ void GI1::HashGridCache::ensureMemoryIsAllocated([[maybe_unused]] CapsaicinInter
 
     debug_total_memory_size_in_bytes += radiance_cache_value_buffer_.getSize();
 
+    if (!radiance_cache_multibounce_info_buffer_ || num_cells != num_cells_)
+    {
+        gfxDestroyBuffer(gfx_, radiance_cache_multibounce_info_buffer_);
+        radiance_cache_multibounce_info_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, num_cells);
+        radiance_cache_multibounce_info_buffer_.setName("Capsaicin_RadianceCache_MultibounceInfoBuffer");
+        
+        gfxCommandClearBuffer(gfx_, radiance_cache_multibounce_info_buffer_);
+    }
+
+    debug_total_memory_size_in_bytes += radiance_cache_multibounce_info_buffer_.getSize();
+
     if (!radiance_cache_value_indirect_buffer_ || num_cells != num_cells_)
     {
         gfxDestroyBuffer(gfx_, radiance_cache_value_indirect_buffer_);
@@ -684,13 +695,10 @@ void GI1::HashGridCache::ensureMemoryIsAllocated([[maybe_unused]] CapsaicinInter
         radiance_cache_multibounce_query_buffer_ =
             gfxCreateBuffer<uint32_t>(gfx_, max_ray_count);
         radiance_cache_multibounce_query_buffer_.setName("Capsaicin_RadianceCache_MultibounceQueryBuffer"); 
-        radiance_cache_multibounce_info_buffer_ = gfxCreateBuffer<uint32_t>(gfx_, max_ray_count);
-        radiance_cache_multibounce_info_buffer_.setName("Capsaicin_RadianceCache_MultibounceInfoBuffer");
     }
 
     debug_total_memory_size_in_bytes += radiance_cache_multibounce_cell_buffer_.getSize();
     debug_total_memory_size_in_bytes += radiance_cache_multibounce_query_buffer_.getSize();
-    debug_total_memory_size_in_bytes += radiance_cache_multibounce_info_buffer_.getSize();
 
     if (!radiance_cache_resolve_count_buffer_)
     {
@@ -2299,7 +2307,7 @@ void GI1::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandDispatch(gfx_, num_groups_x, 1, 1);
     }
 
-    // Discover indirect (second bounce) cells we need for multibounce
+    // Discover indirect cells we need for multibounce
     if (options.gi1_use_multibounce)
     {
         if (options.gi1_use_dxr10)
@@ -2352,7 +2360,7 @@ void GI1::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandDispatch(gfx_, num_groups_x, 1, 1);
     }
 
-    // Generate reservoirs for first bounce cells
+    // Generate reservoirs for our secondary hit points
     {
         TimedSection const timed_section(*this, "GenerateReservoirs");
 
@@ -2363,7 +2371,6 @@ void GI1::render(CapsaicinInternal &capsaicin) noexcept
         gfxCommandDispatchIndirect(gfx_, dispatch_command_buffer_);
     }
 
-    // Generate reservoirs for second bounce cells
     if (options.gi1_use_multibounce)
     {
         TimedSection const timed_section(*this, "GenerateMultibounceReservoirs");
@@ -2445,7 +2452,7 @@ void GI1::render(CapsaicinInternal &capsaicin) noexcept
     }
 
         
-    // Resolve second bounce cells into first bounce cells using last frame
+    // Resolve bounce 1 cells into first bounce cells using last frame
     if (options.gi1_use_multibounce)
     {
         TimedSection const timed_section(*this, "UpdateMultibounceCells");
